@@ -1,0 +1,24 @@
+diff --git a/src/import/ExtractThread.lua b/src/import/ExtractThread.lua
+index e4631eb4..86900fd0 100644
+--- a/src/import/ExtractThread.lua
++++ b/src/import/ExtractThread.lua
+@@ -22,6 +22,11 @@ local resultChannel = love.thread.getChannel(resultName)
+ -- push each would cost more than the work it reports.
+ local PROGRESS_HZ = 20
+ 
++-- Lua 5.1's incremental GC lets garbage pile up to ~2x the live heap before it
++-- catches up; measured on the desktop, the Crystal import peaks at 40 MB for
++-- 19 MB live.  An Old 3DS gives the whole app ~30 MB, so collect eagerly.
++collectgarbage("setpause", 100)
++
+ local ok, err = pcall(function()
+   local CacheFs = require("src.import.CacheFs")
+   CacheFs.prefix = prefix
+@@ -42,6 +47,7 @@ local ok, err = pcall(function()
+         progressChannel:push({
+           progress = progress, total = total, stage = stage,
+           current = current, stageTotal = stageTotal,
++          memKB = collectgarbage("count"),
+         })
+       end
+     end, romSha1)

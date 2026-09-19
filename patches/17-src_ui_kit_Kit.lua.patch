@@ -1,0 +1,54 @@
+diff --git a/src/ui/kit/Kit.lua b/src/ui/kit/Kit.lua
+index d493fd67..e1b7f45c 100644
+--- a/src/ui/kit/Kit.lua
++++ b/src/ui/kit/Kit.lua
+@@ -495,6 +495,36 @@ function Kit._resolveNav()
+     end
+     return
+   elseif dir == "up" or dir == "down" then
++    -- WITHIN-LAYER VERTICAL FIRST.  The content layer (3) stacks controls
++    -- vertically -- the ROM action, then each save-slot row -- and two of
++    -- them can share a centre X exactly (full-width rows), which makes them
++    -- unreachable by the horizontal walk (dx == 0) and invisible to the
++    -- layer-stepping below (same layer).  A same-layer control strictly in
++    -- the direction of travel is spatially *between* the current control and
++    -- the next layer, so it wins before any layer jump.  Found in the 3DS
++    -- bring-up; gated to 3DS because desktop/Switch focus order has not been
++    -- regression-tested against it (ponytail: widen once verified elsewhere).
++    if require("src.core.Console").is3DS() then
++      local sameBest, sameScore
++      for i = 1, n do
++        local c = Kit._nav[i]
++        if c.id ~= cur.id and getNavLayer(c) == curLayer then
++          local cMidY = c.y + c.h / 2
++          local dy = cMidY - cy
++          if (dir == "down" and dy > 1) or (dir == "up" and dy < -1) then
++            local score = math.abs(dy) + math.abs((c.x + c.w / 2) - cx) * 0.5
++            if not sameScore or score < sameScore then
++              sameBest, sameScore = c, score
++            end
++          end
++        end
++      end
++      if sameBest then
++        Kit.focusId = sameBest.id
++        return
++      end
++    end
++
+     -- VERTICAL LAYER NAVIGATION (Up/Down steps between layers: 1 <-> 2 <-> 3 <-> 4)
+     local targetLayer = dir == "up" and (curLayer - 1) or (curLayer + 1)
+     targetLayer = math.max(1, math.min(4, targetLayer))
+@@ -1212,6 +1242,12 @@ local clipPool = {}
+ local function applyClip(rect)
+   Kit._clipRect = rect
+   if not (G and G.setScissor) then return end
++  -- 3DS: the top screen's framebuffer is stored rotated and LOVE Potion's
++  -- scissor path applies the rect against the wrong axis (verified on
++  -- hardware: a row-band clip cut a vertical stripe that drifted with
++  -- scroll).  Skip the GPU cut there; the tracked rect above still bounds
++  -- Kit.hit, so clipped-out widgets stay inert.
++  if require("src.core.Console").is3DS() then return end
+   if not rect then
+     G.setScissor()
+   elseif rect.w <= 0 or rect.h <= 0 then

@@ -1,0 +1,87 @@
+diff --git a/src/import/LauncherView.lua b/src/import/LauncherView.lua
+index 8232a64e..c6b5a5b1 100644
+--- a/src/import/LauncherView.lua
++++ b/src/import/LauncherView.lua
+@@ -688,6 +688,12 @@ end
+ 
+ local function cartLabelMesh(imp, key, label, points)
+   if not love.graphics.newMesh then return nil end
++  -- LOVE Potion builds meshes but its Mesh registers no setVertices (its
++  -- wrap_mesh ships setTexture/draw only), and this mesh is repositioned
++  -- every frame through exactly that method.  Probe once; without it the
++  -- cart draws its flat polygon and skips the textured label, same as the
++  -- no-newMesh path above.
++  if imp._cartLabelMeshUnsupported then return nil end
+   imp._cartridgeLabelMeshes = imp._cartridgeLabelMeshes or {}
+   local mesh = imp._cartridgeLabelMeshes[key]
+   if not mesh then
+@@ -697,6 +703,10 @@ local function cartLabelMesh(imp, key, label, points)
+       { 0, 0, 1, 1, 255, 255, 255, 255 },
+       { 0, 0, 0, 1, 255, 255, 255, 255 },
+     }, "fan", "dynamic")
++    if not mesh.setVertices then
++      imp._cartLabelMeshUnsupported = true
++      return nil
++    end
+     mesh:setTexture(label.image)
+     imp._cartridgeLabelMeshes[key] = mesh
+   end
+@@ -3676,13 +3686,24 @@ end
+ local function buildFooter(imp, m, y)
+   Theme.fill(m.x, y, m.w, 1, PAL.line, Theme.A.hairline)
+   local cy = y + math.floor(8 * m.s)
+-  -- The BCG mark is dark ink; invert it for the black field.
+-  imp.invertShader = imp.invertShader or love.graphics.newShader([[
+-    vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+-      vec4 p = Texel(tex, tc);
+-      return vec4((vec3(1.0) - p.rgb) * color.rgb, p.a * color.a);
+-    }
+-  ]])
++  -- The BCG mark is dark ink; invert it for the black field.  LOVE Potion
++  -- (3DS/Switch/Wii U) ships no love.graphics.newShader at all, so there the
++  -- mark draws un-inverted -- dark-on-black, faint but harmless -- rather
++  -- than taking the launcher down.  false means "asked once, unavailable",
++  -- so the miss is not retried every frame.
++  if imp.invertShader == nil then
++    if love.graphics.newShader then
++      local okShader, shader = pcall(love.graphics.newShader, [[
++        vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
++          vec4 p = Texel(tex, tc);
++          return vec4((vec3(1.0) - p.rgb) * color.rgb, p.a * color.a);
++        }
++      ]])
++      imp.invertShader = okShader and shader or false
++    else
++      imp.invertShader = false
++    end
++  end
+   local bw, bh = imp.bcg:getDimensions()
+   local scale = math.min((130 * m.s) / bw, (22 * m.s) / bh)
+   local dw, dh = bw * scale, bh * scale
+@@ -3704,10 +3725,11 @@ local function buildFooter(imp, m, y)
+     Theme.strokeRounded(bx - 3, my - 3, dw + 6, dh + 6, PAL.ink, 0.35 + 0.25 * glowPulse, 2.5, 4)
+     Theme.strokeRounded(bx, my, dw, dh, PAL.ink, 0.95 + 0.05 * glowPulse, 2, 2)
+   end
+-  love.graphics.setShader(imp.invertShader)
++  -- setShader is also absent on LOVE Potion, so both calls ride the guard.
++  if imp.invertShader then love.graphics.setShader(imp.invertShader) end
+   love.graphics.setColor(1, 1, 1, (hot or isFocused) and 1 or 0.85)
+   love.graphics.draw(imp.bcg, Theme.snap(bx), Theme.snap(my), 0, scale, scale)
+-  love.graphics.setShader()
++  if imp.invertShader then love.graphics.setShader() end
+   love.graphics.setColor(1, 1, 1, 1)
+   if Kit.press(bx, my, dw, dh) or Kit._activateId == "bcg" then
+     queueAction(imp, "bcg", function() love.system.openURL(COMMUNITY_URL) end)
+@@ -6393,8 +6415,10 @@ function LauncherView.draw(imp)
+   local m = Layout.metrics(1200)
+ 
+   -- The pointer is the pad cursor while it is active, so the ring, hover and
+-  -- clicks all agree on where "the pointer" is.
+-  local mx, my = 0, 0
++  -- clicks all agree on where "the pointer" is.  Off-screen is the honest
++  -- default for a machine with no pointer module at all (the LOVE Potion
++  -- consoles): it hovers nothing, which is what hit-testing should conclude.
++  local mx, my = -1, -1
+   if imp._padCursorActive then
+     mx, my = imp._padCursor.x, imp._padCursor.y
+   elseif love.mouse and love.mouse.getPosition then

@@ -1,0 +1,15 @@
+diff --git a/src/core/chip_worker.lua b/src/core/chip_worker.lua
+index 4e839444..b98faf86 100644
+--- a/src/core/chip_worker.lua
++++ b/src/core/chip_worker.lua
+@@ -36,6 +36,10 @@ local ChipSynth = assert(love.filesystem.load("src/core/ChipSynth.lua"))()
+ local cmdCh = love.thread.getChannel("chipaudio_cmd")
+ local outCh = love.thread.getChannel("chipaudio_out")
+ 
++-- 3DS bring-up heartbeat: proves the worker booted AND that cross-thread
++-- channel delivery works at all (updateThreaded quietly drops unknown rows).
++outCh:push({ booted = true })
++
+ local BUF = ChipSynth.MUSIC_BUFFER_SAMPLES
+ local BUF_SECONDS = BUF / ChipSynth.SAMPLE_RATE
+ -- how many finished buffers may sit in the hand-off channel before the worker

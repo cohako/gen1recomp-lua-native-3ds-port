@@ -1,0 +1,65 @@
+diff --git a/src/core/ChipSynth.lua b/src/core/ChipSynth.lua
+index 41b1310f..facd7b20 100644
+--- a/src/core/ChipSynth.lua
++++ b/src/core/ChipSynth.lua
+@@ -10,7 +10,59 @@
+ -- those are unavailable or main-thread-only inside a love.thread worker, so
+ -- keeping them out is what lets the same synth code run in the worker.
+ 
+-local bit = require("bit")
++-- LOVE Potion registers LuaJIT's bit library on the MAIN state only
++-- (main.cpp calls luaopen_bit; its luathread.cpp opens just the standard
++-- libs), so inside a love.thread worker this require fails on the consoles.
++-- The pure-Lua fallback below is slower but arithmetically identical for the
++-- 32-bit-safe inputs this synth feeds it (masks up to 0x7FF, shifts < 8).
++local okBit, bit = pcall(require, "bit")
++-- LOVE Potion's luaopen_bit sets only the GLOBAL, so require can fail while
++-- the fast native library sits right there; the pure-Lua fallback is far too
++-- slow for real-time synthesis on the 3DS CPU.
++if not okBit and type(rawget(_G, "bit")) == "table" then
++  okBit, bit = true, rawget(_G, "bit")
++end
++if not okBit then okBit, bit = pcall(require, "bit32") end
++if not okBit then
++  local floor = math.floor
++  -- Two's-complement view, because the synth genuinely feeds negatives:
++  -- Channel:frequency computes `PITCHES[n] - 0x10000` and masks the
++  -- arithmetic-shifted result with 0x7FF.
++  local function norm(x) return (x % 0x100000000) end
++  bit = {}
++  function bit.band(a, b)
++    a, b = norm(a), norm(b)
++    local r, p = 0, 1
++    while a > 0 and b > 0 do
++      if a % 2 == 1 and b % 2 == 1 then r = r + p end
++      a, b, p = floor(a / 2), floor(b / 2), p * 2
++    end
++    return r
++  end
++  function bit.bor(a, b)
++    a, b = norm(a), norm(b)
++    local r, p = 0, 1
++    while a > 0 or b > 0 do
++      if a % 2 == 1 or b % 2 == 1 then r = r + p end
++      a, b, p = floor(a / 2), floor(b / 2), p * 2
++    end
++    return r
++  end
++  function bit.bxor(a, b)
++    a, b = norm(a), norm(b)
++    local r, p = 0, 1
++    while a > 0 or b > 0 do
++      if (a + b) % 2 == 1 then r = r + p end
++      a, b, p = floor(a / 2), floor(b / 2), p * 2
++    end
++    return r
++  end
++  function bit.lshift(a, n) return norm(a * 2 ^ n) end
++  function bit.rshift(a, n) return floor(norm(a) / 2 ^ n) end
++  -- floor toward -inf on the SIGNED value is exactly the arithmetic shift;
++  -- callers always mask the result, so the sign bits it keeps are correct.
++  function bit.arshift(a, n) return floor(a / 2 ^ n) end
++end
+ 
+ local ChipSynth = {}
+ 

@@ -1,0 +1,24 @@
+diff --git a/src/render/Renderer.lua b/src/render/Renderer.lua
+index 34568626..4967a0cb 100644
+--- a/src/render/Renderer.lua
++++ b/src/render/Renderer.lua
+@@ -170,6 +170,19 @@ function Renderer:fitScale()
+   -- re-apply.
+   local cap = FaithfulRes.scaleCap()
+   if cap and cap < s then s = cap end
++  -- 3DS: the top screen is 400x240, where the largest whole multiple of the
++  -- 160x144 picture is 1x -- a stamp in the middle of the panel.  Integer
++  -- scaling exists to avoid resample judder on displays with pixels to
++  -- spare; at 240p the trade flips, so fill the height with the exact
++  -- fractional fit (1.66x).  The world pass already covers the width
++  -- (worldViewSize sizes it from the framebuffer, so letterbox voids become
++  -- more map), which is how the panel fills on the one axis the UI does not.
++  if require("src.core.Console").is3DS() then
++    local _, _, pw2, ph2 = displayMetrics()
++    local w2, h2 = self:uiSize()
++    local exact = math.min(pw2 / w2, ph2 / h2)
++    if exact > s then s = exact end
++  end
+   return s
+ end
+ 

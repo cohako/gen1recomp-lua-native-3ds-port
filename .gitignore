@@ -1,0 +1,22 @@
+# build outputs
+work/
+dist/
+engine/build/
+engine/build3ds/
+engine/_deps/
+*.3dsx
+*.elf
+*.smdh
+*.cia
+
+# never commit ROMs, saves or generated caches
+*.gb
+*.gbc
+*.sav
+**/assets/generated/
+**/data/generated/
+rom-cache.complete
+
+# editors / OS
+.DS_Store
+*.swp

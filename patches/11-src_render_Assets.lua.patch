@@ -1,0 +1,77 @@
+diff --git a/src/render/Assets.lua b/src/render/Assets.lua
+index 3469d0f1..50f6e093 100644
+--- a/src/render/Assets.lua
++++ b/src/render/Assets.lua
+@@ -31,10 +31,41 @@ local function exists(path)
+ end
+ Assets.exists = exists
+ 
++-- Console has no requires of its own, so pulling it in here cannot cycle.
++local Console = require("src.core.Console")
++
++-- 3DS: the bundler converts every shipped PNG in the build to .t3x (the
++-- console's own texture format) and does NOT keep the .png, so a .png path
++-- written in the source resolves to a file that is not in the build -- a
++-- hard error at load, not a missing-texture placeholder.  Swap in the
++-- sibling .t3x when one exists.
++--
++-- Existence-driven rather than blanket, because only the shipped art is
++-- converted: everything under assets/generated/ is written as PNG at runtime
++-- by the ROM import, long after the bundler has run, and must stay PNG.
++--
++-- Memoized, because resolve() is on the per-draw path and this would
++-- otherwise cost a filesystem stat per image request per frame.
++local t3xFor = {}
++local function consoleTexture(path)
++  local hit = t3xFor[path]
++  if hit ~= nil then return hit end
++  local swapped = path
++  if path:sub(-4) == ".png" then
++    local candidate = path:sub(1, -5) .. ".t3x"
++    if exists(candidate) then swapped = candidate end
++  end
++  t3xFor[path] = swapped
++  return swapped
++end
++
+ -- Mod overrides win; on NX, Blue/Yellow then use the prefixed save-dir file;
+ -- otherwise the caller's unprefixed path (Red / mounted overlay).
+ function Assets.resolve(path)
+   if type(path) ~= "string" then return path end
++  if Console.is3DS() then
++    path = consoleTexture(path)
++  end
+   if path:sub(1, #GENERATED) ~= GENERATED then return path end
+ 
+   local rel = path:sub(#GENERATED + 1)
+@@ -54,6 +85,22 @@ function Assets.resolve(path)
+   return path
+ end
+ 
++-- Did a mod (or an NX derived save) replace this asset?  The question callers
++-- actually mean when they gate on "did the vanilla art change" (the battle
++-- anim/pic-mismatch guards).  Comparing Assets.resolve(path) ~= path used to
++-- answer it, but that breaks on 3DS: consoleTexture swaps EVERY shipped .png
++-- for its .t3x sibling, so vanilla art reads as replaced and the guard dies.
++--
++-- Measured against the same console swap rather than against `path`, so the
++-- build-format rewrite cancels out and only a real override remains.  Goes
++-- through resolve() instead of re-implementing the override lookup, so the
++-- two can never disagree and anything that wraps resolve is still honoured.
++function Assets.isOverridden(path)
++  if type(path) ~= "string" then return false end
++  local base = Console.is3DS() and consoleTexture(path) or path
++  return Assets.resolve(path) ~= base
++end
++
+ function Assets.image(path)
+   local resolved = Assets.resolve(path)
+   local image = cache[resolved]
+@@ -89,6 +136,7 @@ end
+ -- invalidator throws must not strand the ones behind it in the list.
+ function Assets.invalidate()
+   cache = {}
++  t3xFor = {}
+   for _, fn in ipairs(invalidators) do pcall(fn) end
+ end
+ 

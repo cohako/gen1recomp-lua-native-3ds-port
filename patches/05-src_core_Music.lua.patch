@@ -1,0 +1,101 @@
+diff --git a/src/core/Music.lua b/src/core/Music.lua
+index 6fa0915e..f2ee0814 100644
+--- a/src/core/Music.lua
++++ b/src/core/Music.lua
+@@ -160,6 +160,44 @@ local function songDef(data, song)
+   return data and data.audio and data.audio.songs and data.audio.songs[song]
+ end
+ 
++-- Where import parked this song's pre-rendered audio, or nil when the platform
++-- synthesizes live (every platform but the 3DS) or the file was never written.
++-- Answers are cached because the existence tests here sit on the song-choice
++-- path, which runs far more often than a song actually changes.
++local prerenderCache = {}
++
++local function prerenderedFile(data, song)
++  if not require("src.core.Console").prefersPrerenderedMusic() then return nil end
++  local getInfo = love and love.filesystem and love.filesystem.getInfo
++  if not getInfo then return nil end
++  -- Same order CacheFs.readActive resolves cache files in: the active
++  -- version's prefixed tree (yellow/assets/generated/...) first, then the
++  -- plain path for a build that mounts the version at the root.  The prefix
++  -- has to come from GameVersion, not audio.programPrefix -- that field only
++  -- exists on the copy ChipAudio hands the worker, and only on NX.
++  local prefix = require("src.core.GameVersion").cachePrefix() or ""
++  -- Keyed by prefix AND song: the launcher can switch versions inside one
++  -- process, and every version names its songs the same, so a song-only key
++  -- would answer Red with the Yellow recording still sitting in the cache.
++  local key = prefix .. "\0" .. song
++  local hit = prerenderCache[key]
++  if hit ~= nil then return hit or nil end
++  local path = "assets/generated/audio/music/" .. song .. ".wav"
++  local found = false
++  if prefix ~= "" and getInfo(prefix .. path) then
++    found = prefix .. path
++  elseif getInfo(path) then
++    found = path
++  end
++  prerenderCache[key] = found
++  return found or nil
++end
++
++-- Dropped when a reimport may have changed what is on disk (ChipAudio.invalidate).
++function Music.invalidatePrerender()
++  prerenderCache = {}
++end
++
+ -- which mod put this label in the registry, for attributed failure logs
+ local function songOwner(data, song)
+   local owners = data and data.audio and data.audio._owners
+@@ -190,12 +228,20 @@ end
+ -- once this succeeded, so a broken def costs nothing but a log line.
+ -- Returns src, loopSrc, isChip -- or nil plus the reason.
+ local function startSong(data, def, wantLoop)
++  local Trace = require("src.core.CtrTrace")
+   if def.chip or (def.address and def.bank) then
+-    local ok, src = pcall(
++    local ok, src, playErr = pcall(
+       require("src.core.ChipAudio").playMusic, data, def, wantLoop)
++    Trace.log("music", ("startSong chip bank=%s addr=%s -> ok=%s src=%s"):format(
++      tostring(def.bank), tostring(def.address), tostring(ok), tostring(src)))
+     if ok and src then return src, nil, true end
+-    return nil, nil, nil, ok and "no source" or tostring(src)
++    -- pcall's own failure (ok == false) puts the error in `src`; a clean
++    -- call that simply declined to produce a source (ok == true, src == nil)
++    -- puts its reason in the function's second return, `playErr`.
++    if not ok then return nil, nil, nil, tostring(src) end
++    return nil, nil, nil, playErr and tostring(playErr) or "no source"
+   elseif def.file then
++    Trace.log("music", "startSong file " .. tostring(def.file))
+     local src, err = newSource(def.file)
+     if not src then return nil, nil, nil, err end
+     -- a missing loop body degrades to the intro file alone
+@@ -284,6 +330,20 @@ function Music.play(data, song, loop, ctx)
+     }
+     def = started
+   end
++  -- Where the chip cannot run, hand startSong a file-only def: it tests the
++  -- chip fields first, so the ROM header has to go for the file branch to be
++  -- reached.  A recording is fixed, so the two chip-only tweaks above (a
++  -- slowed tempo, the rival's alternate start) cannot apply to it -- both are
++  -- cosmetic next to whether the console has music at all.
++  local prerendered = prerenderedFile(data, song)
++  if prerendered then
++    local fileDef = {}
++    for key, value in pairs(def) do fileDef[key] = value end
++    fileDef.chip, fileDef.bank, fileDef.address = nil, nil, nil
++    fileDef.file = prerendered
++    def = fileDef
++  end
++
+   local wantLoop = loop ~= false
+   local src, loopSrc, isChip, err = startSong(data, def, wantLoop)
+   if not src then
+@@ -350,6 +410,7 @@ end
+ -- re-resolves against the freshly merged registries
+ function Music.reload()
+   state.failed = {}
++  Music.invalidatePrerender()
+   Music.stop()
+ end
+ 

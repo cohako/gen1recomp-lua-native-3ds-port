@@ -1,0 +1,16 @@
+diff --git a/src/render/Tilt.lua b/src/render/Tilt.lua
+index 3363cf5e..1e32dcf5 100644
+--- a/src/render/Tilt.lua
++++ b/src/render/Tilt.lua
+@@ -110,6 +110,11 @@ end
+ -- true while tilt is on *or* still tweening -- i.e. whenever the renderer
+ -- must take the perspective path rather than the flat blit
+ function Tilt.active()
++  -- 3DS: the tilt pass needs a grown world canvas (observed asking for
++  -- 741x573 -> a 1024x1024 po2 texture, 6MB with depth -- more than the
++  -- whole free VRAM) plus the projection shader the CTR build doesn't have.
++  -- A saved option from another platform must not black-screen the console.
++  if require("src.core.Console").is3DS() then return false end
+   return Tilt.level > 0 or Tilt.angle > 0
+ end
+ 

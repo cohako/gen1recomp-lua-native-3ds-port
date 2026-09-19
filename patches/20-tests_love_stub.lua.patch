@@ -1,0 +1,15 @@
+diff --git a/tests/love_stub.lua b/tests/love_stub.lua
+index a507c4d6..c1093c53 100644
+--- a/tests/love_stub.lua
++++ b/tests/love_stub.lua
+@@ -72,7 +72,9 @@ stub.graphics = {
+   end,
+   draw = noop, rectangle = noop, clear = noop,
+   setDefaultFilter = noop, print = noop, printf = noop,
+-  line = noop, circle = noop, setLineWidth = noop,
++  -- setLineJoin ships on every real backend including LOVE Potion
++  -- (wrap_graphics.cpp registers it), so the stub carries it too.
++  line = noop, circle = noop, setLineWidth = noop, setLineJoin = noop,
+   -- Fonts: the save editor lays itself out from font metrics, so a headless
+   -- draw needs measurable text.  A fixed 6px advance / 12px line is enough
+   -- for the layout to be exercised (tests assert state, never pixels).

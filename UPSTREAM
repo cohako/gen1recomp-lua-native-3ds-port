@@ -1,0 +1,5 @@
+# Pinned upstream sources. tools/assemble.sh reads the "game" line.
+# <name> <github repo> <commit>
+game   bryanthaboi/gen1recomp fdd1d61ea6f5f27f8edf80cbdbd4d9b68cb7f49b
+# engine/ is a full copy of the LÖVE Potion fork; its base for reference only.
+engine lovebrew/lovepotion    906511d4 (3.0.2-5-g906511d4)

@@ -1,0 +1,92 @@
+diff --git a/src/core/ChipAudio.lua b/src/core/ChipAudio.lua
+index 2a7d47f5..54fadf3f 100644
+--- a/src/core/ChipAudio.lua
++++ b/src/core/ChipAudio.lua
+@@ -217,18 +217,36 @@ local function readyToStart(m)
+ end
+ 
+ function ChipAudio.playMusic(data, header, allowLoops)
++  local Trace = require("src.core.CtrTrace")
++  -- 3DS: real-time chip synthesis is unviable in interpreted Lua on this CPU
++  -- (measured ~1 buffer per 8s -- the worker never catches up, burning a
++  -- core and lagging the game for music that never plays).  Until the
++  -- import-time pre-render cache lands, map/battle music is silent here;
++  -- SFX and cries stay (short, synchronous, affordable).
++  if require("src.core.Console").is3DS() then
++    Trace.log("chip", "playMusic skipped (3DS: awaiting pre-rendered cache)")
++    return nil, "3DS: chip music awaits pre-rendered cache"
++  end
+   if not ensureWorker() then
++    Trace.log("chip", "playMusic -> SYNC fallback (worker unavailable)")
+     return playMusicSync(data, header, allowLoops)
+   end
++  Trace.log("chip", "playMusic -> threaded")
+   -- validate the def on this thread (cheap: engine construction, no synthesis)
+   -- so a broken def costs nothing but a log line and keeps the old song
+   local ok, engine = pcall(ChipSynth.newEngine, data, header,
+                            { allowLoops = allowLoops })
+-  if not ok then return nil, engine end
++  if not ok then
++    Trace.log("chip", "newEngine FAILED: " .. tostring(engine))
++    return nil, engine
++  end
+   -- build the new source before tearing the old song down
+   local ok2, source = pcall(
+     love.audio.newQueueableSource, sampleRate(), 16, 2, MUSIC_BUFFER_COUNT)
+-  if not ok2 then return nil, source end
++  if not ok2 then
++    Trace.log("chip", "newQueueableSource FAILED: " .. tostring(source))
++    return nil, source
++  end
+   ChipAudio.stopMusic()
+   musicGen = musicGen + 1
+   local gen = musicGen
+@@ -279,6 +297,7 @@ local function updateThreaded()
+       m.finished = true
+     elseif buf.error then
+       require("src.core.Logger").warn("chip audio: %s", tostring(buf.error))
++      require("src.core.CtrTrace").log("chip", "worker buffer ERROR: " .. tostring(buf.error))
+       m.finished = true
+     elseif buf.sd then
+       if buf.jit ~= nil then statWorkerJit = buf.jit end
+@@ -300,7 +319,10 @@ local function updateThreaded()
+     end
+   end
+   if not m.started and not musicHeld and readyToStart(m) then
+-    pcall(function() m.source:play() end)
++    local okPlay, errPlay = pcall(function() m.source:play() end)
++    require("src.core.CtrTrace").log("chip",
++      ("source:play ok=%s err=%s queued=%s"):format(
++        tostring(okPlay), tostring(errPlay), tostring(queuedBuffers(m.source))))
+     m.started = true
+   end
+ end
+@@ -470,6 +492,28 @@ function ChipAudio.currentSource()
+   return currentMusic and currentMusic.source
+ end
+ 
++-- Temporary 3DS diagnostics: one line describing what the music path
++-- believes right now (worker state, active song, buffer flow).  Read by the
++-- on-device probe in main.lua; harmless elsewhere.
++function ChipAudio.debugState()
++  local m = currentMusic
++  local queued = m and queuedBuffers(m.source)
++  local playing
++  if m and m.source then
++    local ok, v = pcall(m.source.isPlaying, m.source)
++    playing = ok and tostring(v) or ("err:" .. tostring(v))
++  end
++  return ("worker=%s music=%s started=%s queued=%s playing=%s outCh=%s cmdCh=%s alive=%s"):format(
++    tostring(workerReady),
++    m and (m.threaded and "threaded" or "sync") or "nil",
++    m and tostring(m.started) or "-",
++    tostring(queued),
++    tostring(playing),
++    outCh and tostring(outCh.getCount and outCh:getCount() or "?") or "nil",
++    cmdCh and tostring(cmdCh.getCount and cmdCh:getCount() or "?") or "nil",
++    worker and tostring(select(2, pcall(worker.isRunning, worker))) or "-")
++end
++
+ function ChipAudio.setSuspended(flag)
+   suspended = not not flag
+ end

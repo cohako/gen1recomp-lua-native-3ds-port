@@ -1,0 +1,34 @@
+diff --git a/src/ui/kit/Theme.lua b/src/ui/kit/Theme.lua
+index 6cb3f525..20fa5556 100644
+--- a/src/ui/kit/Theme.lua
++++ b/src/ui/kit/Theme.lua
+@@ -186,10 +186,15 @@ end
+ -- Controls get the smaller one, containers the larger, so a button never
+ -- looks like a card and a card never looks like a button.
+ function Theme.radius()
++  -- 3DS: the CTR triangulation of the rounded-rect fill draws partial boxes
++  -- (verified on hardware); square corners draw correctly, so both radii
++  -- collapse to 0 there.
++  if require("src.core.Console").is3DS() then return 0 end
+   return Theme.BUTTON.radius
+ end
+ 
+ function Theme.cardRadius()
++  if require("src.core.Console").is3DS() then return 0 end
+   return Theme.CARD.radius
+ end
+ 
+@@ -479,6 +484,13 @@ function Theme.fonts(s)
+   local cache = {}
+   local function f(px)
+     local n = math.max(8, math.floor(px + 0.5))
++    -- 3DS: every newFont copies the ~3MB system font into the linear heap;
++    -- the launcher's nine sizes exhausted it and LOVE Potion memcpy'd into
++    -- the failed allocation -- an uncatchable ARM11 data abort (verified on
++    -- hardware).  Two buckets keep body and heading text distinct.
++    if require("src.core.Console").is3DS() then
++      n = (n >= 15) and 18 or 12
++    end
+     if not cache[n] then
+       local face = G.newFont(n)
+       if UiFont and UiFont.attach then

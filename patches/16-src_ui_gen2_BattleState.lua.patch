@@ -1,0 +1,22 @@
+diff --git a/src/ui/gen2/BattleState.lua b/src/ui/gen2/BattleState.lua
+index 9171c059..675cb473 100644
+--- a/src/ui/gen2/BattleState.lua
++++ b/src/ui/gen2/BattleState.lua
+@@ -774,7 +774,7 @@ function BattleState:frontPicReplaced(mon)
+   if type(vanilla) ~= "string" then return false end
+   local _, _, path = self:pic(mon, false)
+   if type(path) == "string" and path ~= vanilla then return true end
+-  return Assets.resolve(vanilla) ~= vanilla
++  return Assets.isOverridden(vanilla)
+ end
+ 
+ -- one cart asset, two files on the pokemon.sprite seam (#1827)
+@@ -783,7 +783,7 @@ function BattleState:animSheetPath(mon, data)
+   local path = data and data.sheet
+   if type(path) ~= "string" then return nil, false end
+   if not Runtime.wantsHook("pokemon.sprite") then
+-    return path, Assets.resolve(path) ~= path
++    return path, Assets.isOverridden(path)
+   end
+   local letter
+   if mon and mon.species == Unown.SPECIES then letter = Unown.monLetter(mon) end

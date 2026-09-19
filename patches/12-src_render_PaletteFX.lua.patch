@@ -1,0 +1,21 @@
+diff --git a/src/render/PaletteFX.lua b/src/render/PaletteFX.lua
+index 86fab381..c24610f0 100644
+--- a/src/render/PaletteFX.lua
++++ b/src/render/PaletteFX.lua
+@@ -953,6 +953,16 @@ end
+ -- send a 4-color (0-255 RGB) palette to the shade-remap shader, after
+ -- applying the active COLORS display mode
+ function PaletteFX.sendColors(shader, c)
++  -- No shader is a real state, not a caller bug: shader() and keyedShader()
++  -- both resolve to nil where the backend compiles none (the headless stub,
++  -- and every LOVE Potion console -- that port ships no shader compiler at
++  -- all).  Most callers test for it and skip the whole colorized path, but
++  -- the battle zone pass sets the shader once and then feeds this per zone
++  -- inside its loop, so the nil has to stop here or it becomes a nil:send()
++  -- mid-battle.  Falling through with no uniforms sent is the right
++  -- degradation: the zones draw uncolorized, which is the DMG picture the
++  -- fallback path renders.
++  if not shader then return end
+   c = PaletteFX.effectiveColors(c)
+   if not c then return end
+   shader:send("c0", { c[1][1] / 255, c[1][2] / 255, c[1][3] / 255 })

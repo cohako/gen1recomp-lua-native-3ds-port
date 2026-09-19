@@ -1,0 +1,197 @@
+diff --git a/src/import/RomImporter.lua b/src/import/RomImporter.lua
+index 23ad8e55..df2e3c16 100644
+--- a/src/import/RomImporter.lua
++++ b/src/import/RomImporter.lua
+@@ -5,6 +5,10 @@ local Strings = require("src.core.Strings")
+ local HostShell = require("src.core.HostShell")
+ local Platform = require("src.core.Platform")
+ local SafeArea = require("src.core.SafeArea")
++local Console = require("src.core.Console")
++-- for Assets.resolve only: the launcher's own art has to survive the 3DS
++-- bundler rewriting every shipped .png to .t3x
++local Assets = require("src.render.Assets")
+ 
+ local RomImporter = {}
+ RomImporter.__index = RomImporter
+@@ -1347,6 +1351,10 @@ function RomImporter.new(onComplete, opts)
+   local romImportMode = Platform.romImportMode()
+   local mobileFileBridge = mobileOS == "Android" or mobileOS == "iOS"
+   local android = mobileFileBridge
++  -- The LOVE Potion consoles ("3DS" / "Switch" / "Wii U", or nil elsewhere).
++  -- NOT folded into `android`: that flag also means SAF pickers and Files-app
++  -- export, none of which exist here.  What they share is having no pointer.
++  local console = Console.name()
+   local CacheFs = require("src.import.CacheFs")
+   local self = setmetatable({
+     onComplete = onComplete,
+@@ -1359,6 +1367,7 @@ function RomImporter.new(onComplete, opts)
+     romImportMode = romImportMode,
+     mobileFileBridge = mobileFileBridge,
+     android = android,
++    console = console,
+     ios = mobileOS == "iOS",
+     nativePicker = romImportMode == "native-picker",
+     baseRomDiscovery = opts.launcher and Platform.isUWP(),
+@@ -1377,7 +1386,10 @@ function RomImporter.new(onComplete, opts)
+     -- Mobile drag-scroll goes through FlexLove.touch* (main.lua forwards the
+     -- full touch stream while the launcher is up). love.touch remains pollable
+     -- for click hit-testing inside EventHandler.
+-    touchPollable = mobileFileBridge and love.touch ~= nil
++    -- The consoles have a touchscreen too (the 3DS bottom screen, the Wii U
++    -- gamepad, the Switch in handheld mode) and LOVE Potion does build a touch
++    -- module, so they resolve a drag the same pollable way.
++    touchPollable = (mobileFileBridge or console ~= nil) and love.touch ~= nil
+       and love.touch.getTouches ~= nil and love.touch.getPosition ~= nil,
+     -- Active launcher tab: "red"/"blue"/"yellow"/"mods"/"find".  A --game
+     -- shortcut for a version that is not importable yet lands here, so the
+@@ -1386,8 +1398,11 @@ function RomImporter.new(onComplete, opts)
+       local okLO, LO = pcall(require, "src.core.LaunchOptions")
+       return (okLO and LO.pendingTab) or os.getenv("POKEPORT_LAUNCHER_TAB") or "red"
+     end)(),
+-    logo = love.graphics.newImage("assets/logo/logo.png"),
+-    bcg = love.graphics.newImage("assets/logo/bcg.png"),
++    -- Through Assets.resolve: on the 3DS these two are .t3x inside the build,
++    -- and these are the very first images the app loads, so an unresolved .png
++    -- here is the whole launcher failing before it draws a single frame.
++    logo = love.graphics.newImage(Assets.resolve("assets/logo/logo.png")),
++    bcg = love.graphics.newImage(Assets.resolve("assets/logo/bcg.png")),
+     ready = {}, returning = {}, romName = {},
+     importing = nil,      -- the version currently extracting, or nil
+     workState = nil,      -- "working" / "complete" / "error" for that import
+@@ -1501,6 +1516,9 @@ function RomImporter.new(onComplete, opts)
+   for _, version in ipairs(GameVersion.ORDER) do
+     if not self.ready[version] then needRom = true; break end
+   end
++  -- The LOVE Potion consoles do NOT ride this scan: with several carts on the
++  -- card it would pick whichever listed first, so there the player presses a
++  -- column's Import button and RomImporter:choose opens <version>.gb/.gbc.
+   if mobileFileBridge and needRom then
+     local name, data = findPendingRom(self.ready)
+     if name then
+@@ -1763,8 +1781,11 @@ end
+ -- Choose control.  Once the importer is torn down that draw path stops
+ -- running, so restore the arrow before handing off to boot (issue #114).
+ local function resetPointerCursor(self)
+-  if self.android then return end
+-  if not (love.mouse.isCursorSupported and love.mouse.isCursorSupported()) then
++  -- LOVE Potion builds no love.mouse module at all, so on the consoles every
++  -- read below would index nil; there is also no cursor there to restore.
++  if self.android or self.console then return end
++  if not (love.mouse and love.mouse.isCursorSupported
++      and love.mouse.isCursorSupported()) then
+     return
+   end
+   if not self.arrowCursor then
+@@ -1947,6 +1968,10 @@ function RomImporter:_pumpExtract()
+   if not job then return end
+   local msg = job.progress:pop()
+   while msg do
++    if msg.stage ~= self.status then
++      require("src.core.CtrTrace").log("import", ("%s mem=%.1fMB files=%d/%d")
++        :format(msg.stage, (msg.memKB or 0) / 1024, msg.progress, msg.total))
++    end
+     self.status = msg.stage
+     self.progress = msg.progress / msg.total
+     self.stageCurrent = msg.current
+@@ -1959,12 +1984,14 @@ function RomImporter:_pumpExtract()
+     local threadError = job.thread.getError and job.thread:getError()
+     if threadError then
+       self._extract = nil
++      require("src.core.CtrTrace").log("import", "thread died: " .. tostring(threadError))
+       self:setError(tostring(threadError), job.version)
+     end
+     return
+   end
+   self._extract = nil
+   if not res.ok then
++    require("src.core.CtrTrace").log("import", "failed: " .. tostring(res.error))
+     self:setError(tostring(res.error), job.version)
+     return
+   end
+@@ -2548,6 +2575,20 @@ function RomImporter:chooseSaveImport(version)
+     end
+     return
+   end
++  if self.console then
++    -- Same story as choose(): LOVE Potion has no picker, so the only way in
++    -- is a .sav already on the SD card, scanned from the save-dir root.
++    local name = findPendingSav(true, self.pickSkip)
++    if name then
++      self:_importSave(version, name)
++      return
++    end
++    self.saveNotice[version] = { ok = false,
++      text = "Copy your .sav onto the SD card, into "
++        .. ((love.filesystem.getSaveDirectory
++          and love.filesystem.getSaveDirectory()) or "the save folder") }
++    return
++  end
+   if self.android then
+     local name = findPendingSav(true, self.pickSkip)
+     if name then
+@@ -2691,6 +2732,22 @@ end
+ function RomImporter:choose(version)
+   if self.workState == "working" then return end
+   self.chooseVersion = version or "red"
++  if self.console then
++    -- No import on the LOVE Potion consoles.  Measured on a New 2DS XL: a
++    -- Gen 2 import takes hours (SD writes + PNG encode per file), and the
++    -- extractor's live heap (~30 MB in Lua 5.1) does not fit the ~32 MB the
++    -- app gets under the Homebrew Launcher -- it died in malloc at 68%.  The
++    -- cache is built on the PC in seconds and copied to the card instead
++    -- (docs/3ds-build.md, "Importing a ROM on the PC").
++    self.notice = {
++      version = self.chooseVersion,
++      status = "Import on the PC, then copy the folder to the SD card:",
++      detail = ((love.filesystem.getSaveDirectory
++          and love.filesystem.getSaveDirectory()) or "sdmc:/3ds/save/pokemon-love2d")
++        .. "/" .. self.chooseVersion,
++    }
++    return
++  end
+   if self.isNX then
+     -- Same path as the Scan again button: rescan imports/ (or show MTP hint).
+     self:rescanAction(self.chooseVersion)
+@@ -3301,7 +3358,9 @@ function RomImporter:_updatePadCursor(dt)
+   -- pointer after bumping a stick once. On NX this must stay off: love-nx /
+   -- SDL often drifts the system mouse with the stick (or touch), and axis
+   -- events are not every frame, so yield+reactivate flickers the overlay.
+-  if not self:_consolePointerHost() then
++  -- love.mouse is absent entirely on the LOVE Potion consoles (they ship no
++  -- mouse module), so the real-mouse yield only exists where a mouse can.
++  if not self:_consolePointerHost() and love.mouse and love.mouse.getPosition then
+     local mx, my = love.mouse.getPosition()
+     if self._lastMouseX and self._padCursorActive then
+       if math.abs(mx - self._lastMouseX) > 3 or math.abs(my - self._lastMouseY) > 3 then
+@@ -3350,7 +3409,7 @@ function RomImporter:_updatePadCursor(dt)
+     if overY ~= 0 and self._flex then
+       require("src.import.LauncherView").wheelmoved(self, 0, -overY / 48)
+     end
+-    if not self:_consolePointerHost() and love.mouse.setPosition then
++    if not self:_consolePointerHost() and love.mouse and love.mouse.setPosition then
+       pcall(love.mouse.setPosition, self._padCursor.x, self._padCursor.y)
+       self._lastMouseX, self._lastMouseY = self._padCursor.x, self._padCursor.y
+     end
+@@ -3566,6 +3625,12 @@ end
+ 
+ function RomImporter:gamepadaxis(_, axis, value)
+   if axis == "leftx" or axis == "lefty" or axis == "righty" then
++    -- 3DS: the circle pad reports Y with +1 at the top, the opposite of the
++    -- SDL convention the cursor and scroll maths below assume (verified on
++    -- hardware: stick up scrolled down until this sign flip).
++    if (axis == "lefty" or axis == "righty") and Console.is3DS() then
++      value = -value
++    end
+     self._padAxis[axis] = value
+     if self._padCursorActive and math.abs(value) > PAD_DEAD then
+       self:_activatePadCursor()
+@@ -3700,6 +3765,9 @@ end
+ function RomImporter:reimport(version)
+   if self.workState == "working" then return end
+   if not self.ready[version] then return end
++  -- The consoles cannot import (see choose), so un-readying a column here
++  -- would only hide it until the next boot re-reads the marker.
++  if self.console then return end
+   self.ready[version] = false
+   self.returning[version] = false
+   self.chooseVersion = version

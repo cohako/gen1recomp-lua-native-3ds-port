@@ -1,0 +1,61 @@
+name: Release
+
+# Manual only: run from the Actions tab (workflow_dispatch). Only users with
+# write access to this repository can trigger it.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  game:
+    name: assemble game
+    runs-on: ubuntu-latest
+    container: nickblah/luajit:2.1-luarocks-ubuntu
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update -qq && apt-get install -y -qq git >/dev/null
+      - run: sh tools/assemble.sh
+      - uses: actions/upload-artifact@v4
+        with: { name: game, path: work/game }
+
+  engine:
+    name: build LÖVE Potion (3DS)
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitarm:latest
+    steps:
+      - uses: actions/checkout@v4
+      - working-directory: engine
+        run: cmake -S . -B build -Wno-dev >/dev/null && ninja -C build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine
+          path: |
+            engine/build/lovepotion.3dsx
+            engine/build/lovepotion.elf
+
+  release:
+    name: package + publish
+    needs: [game, engine]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: game, path: work/game }
+      - uses: actions/download-artifact@v4
+        with: { name: engine, path: engine-out }
+      - name: package
+        run: sh tools/package.sh engine-out/lovepotion.3dsx "${GITHUB_REF_NAME}"
+      - name: publish (only when dispatched on a tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/gen1recomp-3ds-*.zip
+            engine-out/lovepotion.elf
+      - uses: actions/upload-artifact@v4
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        with: { name: release-zip, path: dist/*.zip }

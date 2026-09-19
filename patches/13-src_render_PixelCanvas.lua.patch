@@ -1,0 +1,20 @@
+diff --git a/src/render/PixelCanvas.lua b/src/render/PixelCanvas.lua
+index 861f5c27..bfd22407 100644
+--- a/src/render/PixelCanvas.lua
++++ b/src/render/PixelCanvas.lua
+@@ -35,7 +35,14 @@ local PixelCanvas = {}
+ -- One framebuffer pixel per w/h unit, always.  `filter` is applied only when
+ -- given, so callers that relied on LOVE's default ("linear") keep it.
+ function PixelCanvas.new(w, h, filter)
+-  local canvas = love.graphics.newCanvas(w, h, { dpiscale = 1 })
++  local ok, canvas = pcall(love.graphics.newCanvas, w, h, { dpiscale = 1 })
++  if not ok then
++    -- keep the size in the error: "Failed to create framebuffer Texture"
++    -- alone does not say WHICH allocation ran the console out of VRAM
++    require("src.core.CtrTrace").log("canvas",
++      ("newCanvas %sx%s FAILED: %s"):format(tostring(w), tostring(h), tostring(canvas)))
++    error(("%s (canvas %sx%s)"):format(tostring(canvas), tostring(w), tostring(h)), 2)
++  end
+   if filter and canvas and canvas.setFilter then
+     canvas:setFilter(filter, filter)
+   end
