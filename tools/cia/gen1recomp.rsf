@@ -25,31 +25,14 @@ SystemControlInfo:
 # DO NOT EDIT BELOW HERE OR PROGRAMS WILL NOT LAUNCH (most likely)
 
 AccessControlInfo:
+  # Least privilege.  The engine reads/writes the SD card (game tree, save
+  # dir, caches) and mounts the system font title's RomFS from NAND read-only.
+  # No NAND write, no debug, no system-app category: a bug in the port must
+  # not be able to touch the console's own storage.
   FileSystemAccess:
     - DirectSdmc
-    - CategorySystemApplication
-    - CategoryHardwareCheck
-    - CategoryFileSystemTool
-    - Debug
-    - TwlCardBackup
-    - TwlNandData
-    - Boss
     - DirectSdmcWrite
-    - Core
     - CtrNandRo
-    - CtrNandRw
-    - CtrNandRoWrite
-    - CategorySystemSettings
-    - CardBoard
-    - ExportImportIvs
-    - DirectSdmcWrite
-    - SwitchCleanup
-    - SaveDataMove
-    - Shop
-    - Shell
-    - CategoryHomeMenu
-    - SeedDB
-
 
   IdealProcessor                : 0
   AffinityMask                  : 1
@@ -134,28 +117,15 @@ AccessControlInfo:
   InterruptNumbers:
   ServiceAccessControl: 
    - APT:U
-   - $hioFIO
-   - $hostio0
-   - $hostio1
    - ac:u
-   - boss:U
-   - cam:u
-   - cecd:u
    - cfg:u
-   - dlp:FKCL
-   - dlp:SRVR
    - dsp::DSP
    - frd:u
    - fs:USER
    - gsp::Gpu
    - hid:USER
-   - http:C
-   - mic:u
    - ndm:u
-   - news:s
-   - nwm::UDS
    - ptm:u
-   - pxi:dev
    - soc:U
    - gsp::Lcd
    - y2r:u
@@ -163,8 +133,6 @@ AccessControlInfo:
    - ir:USER
    - ir:u
    - csnd:SND
-   - am:u
-   - ns:s
    - ptm:sysm
    - mcu::HWC
    

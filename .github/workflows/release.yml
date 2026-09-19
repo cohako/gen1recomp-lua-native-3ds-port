@@ -57,11 +57,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: engine, path: engine-out }
       - name: zip (SD card layout)
-        run: sh tools/package.sh engine-out/lovepotion.3dsx "${{ inputs.tag }}"
+        env: { TAG: "${{ inputs.tag }}" }
+        run: sh tools/package.sh engine-out/lovepotion.3dsx "$TAG"
       - name: CIA
-        run: sh tools/cia/make_cia.sh engine-out/lovepotion.elf dist/gen1recomp.cia "${{ inputs.tag }}"
+        env: { TAG: "${{ inputs.tag }}" }
+        run: sh tools/cia/make_cia.sh engine-out/lovepotion.elf dist/gen1recomp.cia "$TAG"
       - name: publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ inputs.tag }}
           generate_release_notes: true
