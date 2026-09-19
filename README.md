@@ -12,10 +12,10 @@ This repository does not contain the game. It contains:
 | Path | What |
 |---|---|
 | `engine/` | The LÖVE Potion fork (C++), full source. Rendering, audio, input and shutdown fixes for the 3DS, native PNG decode/encode, the Gen1Recomp SMDH icon. |
-| `overlay/` | New files added to the game: the 3DS platform layer (`src/core/Console.lua`, `CtrTrace.lua`), the console test suites, `scripts/3ds/`. |
+| `overlay/` | New files added to the game: the 3DS platform layer (`src/core/Console.lua`), the console test suites, `scripts/3ds/`. |
 | `patches/` | One diff per upstream game file the port edits (20 files). |
 | `UPSTREAM` | The upstream gen1recomp commit the patches apply to. |
-| `tools/` | `assemble.sh` (upstream + overlay + patches → `work/game/`), `package.sh` (release zip). |
+| `tools/` | `assemble.sh` (upstream + overlay + patches → `work/game/`), `package.sh` (release zip), `cia/` (RSF, banner, icon and `make_cia.sh`). |
 
 Releases ship a zip laid out like the SD card root, so nobody needs any of the
 above to play.
@@ -43,11 +43,23 @@ Steps:
 Without a card reader: netload `ftpd.3dsx` once, then
 `scripts/3ds/ftp_upload_game.py <3DS-IP>` uploads the game tree over wifi.
 
-**TODO: CIA install.** A `.cia` installable with FBI (own HOME menu icon, no
-Homebrew Launcher, full application memory) is planned: `bannertool` +
-`makerom` in the release workflow, then FBI *Scan QR Code* against the latest
-release URL. Not built yet; the game-path and exit behaviour of LÖVE Potion
-under a CIA still have to be verified on hardware.
+### CIA (HOME menu icon, via FBI)
+
+Releases also ship `gen1recomp.cia`. It is the same engine as the 3dsx, as
+its own title: an icon on the HOME menu, no Homebrew Launcher, and about four
+times the heap the 3dsx gets under the launcher (91 MB vs ~24 MB).
+
+1. Copy `gen1recomp.cia` anywhere on the SD card (or send it with FBI's
+   *Remote Install* using `scripts/3ds/fbi_send_url.py <3DS-IP> <url>`).
+2. FBI → *SD* → `gen1recomp.cia` → *Install and delete CIA*.
+3. The game tree and the save/cache folders are the same ones the 3dsx uses
+   (`sdmc:/3ds/game/`, `sdmc:/3ds/save/pokemon-love2d/`), so steps 2–3 of the
+   list above still apply.
+
+The CIA contains only this repository's code plus LÖVE Potion; it is signed
+with makerom's public test keys, which is why a CFW is required to install
+it. No Nintendo firmware, keys or assets are included (`dspfirm.cdc` stays a
+one-time dump on the user's own console).
 
 ## Importing a ROM (PC only)
 
@@ -107,7 +119,15 @@ docker run --rm -v "$PWD/engine":/src -w /src devkitpro/devkitarm:latest \
 
 # 3. zip laid out like the SD root
 tools/package.sh engine/build/lovepotion.3dsx v0.0.0-local
+
+# 4. CIA (Linux x86_64 only: downloads pinned makerom + bannertool on first run)
+tools/cia/make_cia.sh engine/build/lovepotion.elf dist/gen1recomp.cia
 ```
+
+CI: `tests.yml` runs on every push/PR to master (assemble + console test
+suites). `engine.yml` (3dsx + ELF + CIA artifacts) and `release.yml` (GitHub
+Release with zip, CIA and ELF for an existing tag) are manual, from the
+Actions tab.
 
 `UPSTREAM_DIR=/path/to/gen1recomp tools/assemble.sh` reuses a local clone.
 Console test suites (`overlay/tests/engine/*.lua`) run with `luajit` from
@@ -143,11 +163,15 @@ Run the tests, then verify on hardware.
 - **Top screen only** (400×240). The bottom screen is unused.
 - Tilt effect disabled (its 741×573 canvas does not fit VRAM). Palette effects
   run without shaders.
-- `.3dsx` via Homebrew Launcher only; no CIA yet.
+- Under the Homebrew Launcher the app gets ~24 MB of heap (inherited from the
+  host title); the CIA gets 91 MB. Both use the same 32 MB linear heap and
+  6 MB of VRAM.
 - Azahar/Citra cannot be used to test: LÖVE Potion exits immediately under it
   (lovebrew/LovePotion#102) while the same build runs on hardware.
 - Upstream pinned to `fdd1d61e` (dev, 2026-09-05). Newer upstream releases
   need the patches refreshed.
+- Tested on a New 2DS XL only. The CIA asks for the New 3DS memory mode
+  (`SystemModeExt: 124MB`); an Old 3DS/2DS is untested.
 
 ## Debugging on hardware
 

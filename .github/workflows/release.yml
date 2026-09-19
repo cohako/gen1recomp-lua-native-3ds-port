@@ -1,9 +1,15 @@
 name: Release
 
-# Manual only: run from the Actions tab (workflow_dispatch). Only users with
-# write access to this repository can trigger it.
+# Manual only.  Run from the Actions tab with the tag to publish (e.g. v0.1.0);
+# the tag must already exist on master.  Builds everything from that tag and
+# creates the GitHub Release with the SD-card zip, the CIA and the engine ELF.
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to release (e.g. v0.1.0)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,10 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     container: nickblah/luajit:2.1-luarocks-ubuntu
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { ref: "${{ inputs.tag }}" }
       - run: apt-get update -qq && apt-get install -y -qq git >/dev/null
       - run: sh tools/assemble.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: game, path: work/game }
 
   engine:
@@ -25,10 +32,11 @@ jobs:
     runs-on: ubuntu-latest
     container: devkitpro/devkitarm:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { ref: "${{ inputs.tag }}" }
       - working-directory: engine
         run: cmake -S . -B build -Wno-dev >/dev/null && ninja -C build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: engine
           path: |
@@ -42,20 +50,24 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { ref: "${{ inputs.tag }}" }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: game, path: work/game }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: engine, path: engine-out }
-      - name: package
-        run: sh tools/package.sh engine-out/lovepotion.3dsx "${GITHUB_REF_NAME}"
-      - name: publish (only when dispatched on a tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+      - name: zip (SD card layout)
+        env: { TAG: "${{ inputs.tag }}" }
+        run: sh tools/package.sh engine-out/lovepotion.3dsx "$TAG"
+      - name: CIA
+        env: { TAG: "${{ inputs.tag }}" }
+        run: sh tools/cia/make_cia.sh engine-out/lovepotion.elf dist/gen1recomp.cia "$TAG"
+      - name: publish GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          tag_name: ${{ inputs.tag }}
+          generate_release_notes: true
           files: |
             dist/gen1recomp-3ds-*.zip
+            dist/gen1recomp.cia
             engine-out/lovepotion.elf
-      - uses: actions/upload-artifact@v4
-        if: "!startsWith(github.ref, 'refs/tags/')"
-        with: { name: release-zip, path: dist/*.zip }

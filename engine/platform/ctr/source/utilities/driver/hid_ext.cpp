@@ -5,7 +5,6 @@
 
 using namespace love;
 
-extern "C" void love_ctr_closelog(const char* msg); // renderer_ext.cpp
 
 #define Module() (Module::GetInstance<JoystickModule<Console::CTR>>(Module::M_JOYSTICK))
 #define Sensor() (Module::GetInstance<Sensor<Console::CTR>>(Module::M_SENSOR))
@@ -47,7 +46,6 @@ static void aptEventHook(const APT_HookType type, void* parameter)
             ** This flag turns the renderer into a no-op until _exit. */
             extern bool love_ctr_apt_closing;
             love_ctr_apt_closing = true;
-            love_ctr_closelog("apt-onexit hook");
 
             driver.SendQuit();
             break;

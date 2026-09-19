@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <common/console.hpp>
 #include <common/luax.hpp>
 #include <common/variant.hpp>
@@ -12,7 +13,6 @@
     #include <utilities/driver/renderer_ext.hpp>
     #include <3ds.h>
 extern "C" void userAppExit(void);
-extern "C" void love_ctr_closelog(const char* msg); // renderer_ext.cpp
 #endif
 
 using namespace love;
@@ -44,17 +44,32 @@ DoneAction RunLOVE(int argc, char** argv, int& retval, Variant& restartValue)
             lua_pushstring(L, argv[0]);
             lua_rawseti(L, -2, -2);
         }
+        else
+        {
+            /* A CIA title gets no argv.  boot.lua takes the lowest arg index
+            ** as the executable path and love.filesystem.init() refuses an
+            ** empty one, so without this a CIA quits before its first frame
+            ** with nothing on screen.  Any path on the SD works: it only
+            ** seeds PhysFS' base directory (the save dir comes from cwd). */
+            lua_pushstring(L, "sdmc:/3ds/gen1recomp.3dsx");
+            lua_rawseti(L, -2, -2);
+        }
 
-        std::vector<const char*> args(argv, argv + argc);
+        /* arg[1..] = argv[1..] then the game folder.  Skip argv[0] by
+        ** position, not by starting the copy at index 1: with argc == 0 (a
+        ** CIA title) the old loop copied nothing and "game" never reached
+        ** arg[1], so boot.lua showed the no-game screen (CIA breadcrumb:
+        ** "tried=nil"). */
+        std::vector<const char*> args(argv + std::min(argc, 1), argv + argc);
         args.push_back("game");
 
         lua_pushstring(L, "embedded boot.lua");
         lua_rawseti(L, -2, -1);
 
-        for (int index = 1; index < (int)args.size(); index++)
+        for (int index = 0; index < (int)args.size(); index++)
         {
             lua_pushstring(L, args[index]);
-            lua_rawseti(L, -2, index);
+            lua_rawseti(L, -2, index + 1);
         }
 
         lua_setglobal(L, "arg");
@@ -115,18 +130,12 @@ DoneAction RunLOVE(int argc, char** argv, int& retval, Variant& restartValue)
     ** crash dumps on exit).  The system is waiting for us to die: tear down
     ** services and leave now; svcExitProcess reaps the threads.  On a normal
     ** in-game quit aptMainLoop() is still true and this is skipped. */
-    love_ctr_closelog("runlove loop exited");
     if (!aptMainLoop())
     {
-        love_ctr_closelog("fast-exit: dsp shutdown");
         DSP<Console::Which>::Instance().Shutdown();
-        love_ctr_closelog("fast-exit: renderer shutdown");
         Renderer<Console::Which>::Instance().Shutdown();
-        love_ctr_closelog("fast-exit: OnExit");
         love::OnExit<Console::Which>();
-        love_ctr_closelog("fast-exit: userAppExit");
         userAppExit();
-        love_ctr_closelog("fast-exit: _exit");
         fflush(NULL);
         /* NOT svcExitProcess: under hbloader that raises the system's
         ** "error has occurred, forcing the software to close" dialog and
@@ -136,7 +145,6 @@ DoneAction RunLOVE(int argc, char** argv, int& retval, Variant& restartValue)
         ** above stop the ndsp and gsp threads). */
         _exit(0);
     }
-    love_ctr_closelog("normal path: lua_close");
 #endif
 
     lua_close(L);
@@ -151,6 +159,12 @@ int main(int argc, char** argv)
     if (love::g_EarlyExit)
     {
         love::OnExit<Console::Which>();
+#if defined(__3DS__)
+        /* same reason as the tail of main(): the static destructor chain
+        ** data-aborts on this console, so leave without running it */
+        fflush(NULL);
+        _exit(0);
+#endif
         return 0;
     }
 
@@ -187,13 +201,9 @@ int main(int argc, char** argv)
     ** the gfx service, then the system services userAppExit closes -- all of
     ** which normally live in destructors/atexit handlers that _exit skips */
     {
-        love_ctr_closelog("main tail: dsp shutdown");
         DSP<Console::Which>::Instance().Shutdown();
-        love_ctr_closelog("main tail: renderer shutdown");
         Renderer<Console::Which>::Instance().Shutdown();
-        love_ctr_closelog("main tail: userAppExit");
         userAppExit();
-        love_ctr_closelog("main tail: _exit");
     }
     fflush(NULL);
     /* same rationale as the fast-exit path above */

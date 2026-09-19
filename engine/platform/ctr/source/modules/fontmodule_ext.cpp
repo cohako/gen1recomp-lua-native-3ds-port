@@ -61,7 +61,15 @@ static CFNT_s* loadFromArchive(uint64_t title, const char* path, size_t& outSize
 
     font = (CFNT_s*)linearAlloc(fontSize);
 
-    if (font && !decompress_LZ11(font, fontSize, nullptr, fontData.get() + 4, size - 4))
+    if (!font)
+    {
+        /* Returning nullptr here handed FontModule a NULL ByteData and the
+        ** first newFont died in memcpy (crash dump 23, CIA). */
+        throw love::Exception("Not enough linear memory for the system font (%lu bytes).",
+                              (unsigned long)fontSize);
+    }
+
+    if (!decompress_LZ11(font, fontSize, nullptr, fontData.get() + 4, size - 4))
     {
         linearFree(font);
         throw love::Exception("Failed to decompress '%s'", path);

@@ -1,5 +1,5 @@
 diff --git a/src/core/Music.lua b/src/core/Music.lua
-index 6fa0915e..f2ee0814 100644
+index 6fa0915e..bcdada83 100644
 --- a/src/core/Music.lua
 +++ b/src/core/Music.lua
 @@ -160,6 +160,44 @@ local function songDef(data, song)
@@ -47,17 +47,13 @@ index 6fa0915e..f2ee0814 100644
  -- which mod put this label in the registry, for attributed failure logs
  local function songOwner(data, song)
    local owners = data and data.audio and data.audio._owners
-@@ -190,12 +228,20 @@ end
- -- once this succeeded, so a broken def costs nothing but a log line.
+@@ -191,10 +229,14 @@ end
  -- Returns src, loopSrc, isChip -- or nil plus the reason.
  local function startSong(data, def, wantLoop)
-+  local Trace = require("src.core.CtrTrace")
    if def.chip or (def.address and def.bank) then
 -    local ok, src = pcall(
 +    local ok, src, playErr = pcall(
        require("src.core.ChipAudio").playMusic, data, def, wantLoop)
-+    Trace.log("music", ("startSong chip bank=%s addr=%s -> ok=%s src=%s"):format(
-+      tostring(def.bank), tostring(def.address), tostring(ok), tostring(src)))
      if ok and src then return src, nil, true end
 -    return nil, nil, nil, ok and "no source" or tostring(src)
 +    -- pcall's own failure (ok == false) puts the error in `src`; a clean
@@ -66,11 +62,9 @@ index 6fa0915e..f2ee0814 100644
 +    if not ok then return nil, nil, nil, tostring(src) end
 +    return nil, nil, nil, playErr and tostring(playErr) or "no source"
    elseif def.file then
-+    Trace.log("music", "startSong file " .. tostring(def.file))
      local src, err = newSource(def.file)
      if not src then return nil, nil, nil, err end
-     -- a missing loop body degrades to the intro file alone
-@@ -284,6 +330,20 @@ function Music.play(data, song, loop, ctx)
+@@ -284,6 +326,20 @@ function Music.play(data, song, loop, ctx)
      }
      def = started
    end
@@ -91,7 +85,7 @@ index 6fa0915e..f2ee0814 100644
    local wantLoop = loop ~= false
    local src, loopSrc, isChip, err = startSong(data, def, wantLoop)
    if not src then
-@@ -350,6 +410,7 @@ end
+@@ -350,6 +406,7 @@ end
  -- re-resolves against the freshly merged registries
  function Music.reload()
    state.failed = {}

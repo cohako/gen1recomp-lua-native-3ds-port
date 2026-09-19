@@ -20,3 +20,4 @@ rom-cache.complete
 # editors / OS
 .DS_Store
 *.swp
+tools/cia/.bin/

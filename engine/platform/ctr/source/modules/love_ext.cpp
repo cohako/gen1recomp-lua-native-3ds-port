@@ -6,7 +6,6 @@
 
 #include <utilities/driver/hid_ext.hpp>
 
-extern "C" void love_ctr_closelog(const char* msg); // renderer_ext.cpp
 extern bool love_ctr_apt_closing;                   // renderer_ext.cpp
 
 using namespace love;
@@ -42,7 +41,6 @@ bool love::MainLoop<Console::CTR>(lua_State* L, int numArgs)
     static int graceFrames = 0;
     if (graceFrames == 0)
     {
-        love_ctr_closelog("grace-start (aptMainLoop=false, Lua still running)");
 
         /* the APTHOOK_ONEXIT hook did NOT fire on a HOME-menu close under
         ** hbloader (verified by close-log on hardware), so neither the
@@ -54,8 +52,6 @@ bool love::MainLoop<Console::CTR>(lua_State* L, int numArgs)
         love_ctr_apt_closing = true;
         HID<Console::CTR>::Instance().SendQuit();
     }
-    if ((graceFrames % 60) == 59)
-        love_ctr_closelog("grace tick");
     return (++graceFrames < 300);
 }
 

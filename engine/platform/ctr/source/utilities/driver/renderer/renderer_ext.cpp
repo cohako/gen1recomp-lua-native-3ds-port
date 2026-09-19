@@ -24,51 +24,11 @@ static bool s_dirtyProjection;
 ** no-op so the Lua quit path can still run to join its worker threads */
 bool love_ctr_apt_closing = false;
 
-/* close-path breadcrumbs: one fsynced line per stage, so after a hang the
-** last line in sdmc:/gen1_close.txt names the stage that blocked */
-extern "C" void love_ctr_closelog(const char* msg)
-{
-    FILE* file = std::fopen("sdmc:/gen1_close.txt", "a");
-    if (!file)
-        return;
-    std::fprintf(file, "%s\n", msg);
-    std::fflush(file);
-    std::fclose(file);
-}
-
 static size_t s_queuedVertices; // in m_commands, not yet copied to m_vertices
 static bool s_dirtySinceSplit;  // any DrawArrays since the last split/frame begin
 static unsigned s_splitsThisFrame;
 static unsigned s_peakVertices;
 
-/* composition trace for the first few seconds of the run: every target bind,
-** clear, scissor and flush lands in sdmc:/gen1_trace.txt so a frame that
-** composes wrong on hardware can be read line by line over FTP */
-static unsigned s_traceFrames = 240;
-static FILE* s_trace;
-
-extern "C" void love_ctr_trace(const char* fmt, ...); // shared with framebuffer_ext.cpp
-#define tracef love_ctr_trace
-
-extern "C" void love_ctr_trace(const char* fmt, ...)
-{
-    if (s_traceFrames == 0)
-        return;
-
-    if (!s_trace)
-        s_trace = std::fopen("sdmc:/gen1_trace.txt", "w");
-
-    if (!s_trace)
-    {
-        s_traceFrames = 0;
-        return;
-    }
-
-    va_list args;
-    va_start(args, fmt);
-    std::vfprintf(s_trace, fmt, args);
-    va_end(args);
-}
 static std::optional<GPU_Primitive_t> s_primitive;
 static PrimitiveType s_primitiveType;
 
@@ -179,8 +139,6 @@ void Renderer<Console::CTR>::Clear(const Color& color)
         ++s_splitsThisFrame;
     }
 
-    tracef("clear %08x split=%d\n", color.abgr(), (int)s_splitsThisFrame);
-
     C3D_RenderTargetClear(this->context.target, C3D_CLEAR_ALL, color.abgr(), 0);
 }
 
@@ -251,10 +209,6 @@ void Renderer<Console::CTR>::BindFramebuffer(Texture<Console::ALL>* texture)
         viewport = { 0, 0, _texture->GetPixelWidth(), _texture->GetPixelHeight() };
     }
 
-    tracef("bind %s vp=%d,%d,%dx%d\n",
-           (texture != nullptr && texture->IsRenderTarget()) ? "canvas" : "screen",
-           viewport.x, viewport.y, viewport.w, viewport.h);
-
     C3D_FrameDrawOn(this->context.target);
     this->SetViewport(viewport, this->context.target->linked);
 }
@@ -297,7 +251,6 @@ void Renderer<Console::CTR>::FlushVertices()
 
         ++drawCallsBatched;
         C3D_DrawArrays(*s_primitive, m_vertexOffset, command.count);
-        tracef("draw n=%zu\n", command.count);
         m_vertexOffset += command.count;
         s_dirtySinceSplit = true;
     }
@@ -369,36 +322,7 @@ void Renderer<Console::CTR>::Present()
         if (m_vertexOffset > s_peakVertices)
             s_peakVertices = m_vertexOffset;
 
-        /* once-a-second render health snapshot, pullable over FTP.  Written
-        ** BEFORE FrameEnd so a frame that wedges the GPU still leaves the
-        ** stats that led up to it on disk. */
-        static unsigned s_presents = 0;
-        if ((++s_presents % 60) == 0)
-        {
-            FILE* file = std::fopen("sdmc:/gen1_stats.txt", "a");
-            if (file)
-            {
-                std::fprintf(file,
-                             "p=%u lin=%u vram=%u cmd=%.3f verts=%u peak=%u splits=%u draws=%d\n",
-                             s_presents, (unsigned)linearSpaceFree(),
-                             (unsigned)vramSpaceFree(), C3D_GetCmdBufUsage(),
-                             (unsigned)m_vertexOffset, s_peakVertices,
-                             s_splitsThisFrame, drawCalls);
-                std::fclose(file);
-            }
-        }
-
         C3D_FrameEnd(0);
-
-        if (s_traceFrames > 0)
-        {
-            tracef("-- present --\n");
-            if (--s_traceFrames == 0 && s_trace)
-            {
-                std::fclose(s_trace);
-                s_trace = nullptr;
-            }
-        }
 
         m_vertexOffset = 0;
         s_dirtySinceSplit = false;

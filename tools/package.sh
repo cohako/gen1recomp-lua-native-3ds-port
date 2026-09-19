@@ -29,6 +29,10 @@ Gen1Recomp - Lua Native 3DS Port
 3. Import your ROM on the PC and copy the resulting version folder to
    sdmc:/3ds/save/pokemon-love2d/<version>/  (see README.md, "Importing a ROM").
 4. Open the Homebrew Launcher and start Gen1Recomp.
+
+Prefer a HOME menu icon?  Install gen1recomp.cia from the same Release with
+FBI (SD -> gen1recomp.cia -> Install and delete).  It uses the same
+3ds/game and 3ds/save folders, so steps 1-3 still apply.
 EOF
 (cd "$STAGE" && zip -qr "$OUT" .)
 rm -rf "$STAGE"

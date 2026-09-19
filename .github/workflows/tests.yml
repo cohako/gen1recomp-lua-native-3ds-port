@@ -1,0 +1,37 @@
+name: Tests
+
+# Runs by itself on every push and pull request to master: assembles the game
+# tree (upstream + overlay + patches) and runs the console test suites.  The
+# engine build is a separate, manual workflow (engine.yml).
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  game:
+    name: assemble game + console test suites
+    runs-on: ubuntu-latest
+    container: nickblah/luajit:2.1-luarocks-ubuntu
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: tools
+        run: apt-get update -qq && apt-get install -y -qq git >/dev/null
+      - name: assemble (upstream + overlay + patches)
+        run: sh tools/assemble.sh
+      - name: console test suites
+        working-directory: work/game
+        shell: bash
+        run: |
+          set -o pipefail
+          fail=0
+          for t in $(cd ../../overlay/tests/engine && ls *.lua) launcher_nx_pad_cursor_test.lua rom_pick_error_bug442.lua uwp_baseroms_test.lua; do
+            printf '%-45s ' "$t"
+            if luajit "tests/engine/$t" 2>&1 | tail -1; then :; else fail=1; fi
+          done
+          exit $fail

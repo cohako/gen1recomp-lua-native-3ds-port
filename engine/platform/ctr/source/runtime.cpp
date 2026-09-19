@@ -2,6 +2,10 @@
 
 #include <utilities/result.hpp>
 
+#include <cerrno>
+#include <cstdio>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -16,6 +20,25 @@ extern "C"
         love::ResultCode result;
         if ((result = initFunction()); result.Success())
             return;
+
+        /* Breadcrumb first: the error applet below needs a working
+        ** framebuffer, and under a CIA the crash that follows when it has
+        ** none used to hide which service failed (crash dump 20). */
+        if (FILE* log = std::fopen("sdmc:/gen1_init.txt", "a"))
+        {
+            std::fprintf(log, "init failed: code=%d result=0x%08lx\n", (int)code, (uint32_t)result);
+            std::fclose(log);
+        }
+
+        /* errorDisp -> aptLaunchSystemApplet -> aptScreenTransfer reads the
+        ** framebuffers, which do not exist this early under a CIA (crash
+        ** dumps 20, 21).  There the breadcrumb above is the report; the
+        ** Homebrew Launcher path shows the applet as before. */
+        if (!envIsHomebrew())
+        {
+            love::g_EarlyExit = true;
+            return;
+        }
 
         errorConf conf {};
 
@@ -40,6 +63,24 @@ extern "C"
         osSetSpeedupEnable(true);
 
         tryInit(std::bind_front(romfsInit), love::ABORT_ROMFS);
+
+        /* main.cpp hands boot.lua the relative source "game", which the
+        ** Homebrew Launcher resolves against the 3dsx's own folder
+        ** (sdmc:/3ds/game).  A CIA has no such folder and starts at the
+        ** SD root, so pin the same working directory here; the game tree
+        ** then lives in one place for both install methods. */
+        if (!envIsHomebrew())
+        {
+            mkdir("sdmc:/3ds", 0777); /* SD without the zip extracted yet */
+            if (chdir("sdmc:/3ds") != 0)
+            {
+                if (FILE* log = std::fopen("sdmc:/gen1_init.txt", "a"))
+                {
+                    std::fprintf(log, "chdir(sdmc:/3ds) failed: errno=%d\n", errno);
+                    std::fclose(log);
+                }
+            }
+        }
 
 #if !defined(__EMULATION__)
         /* raw battery info */

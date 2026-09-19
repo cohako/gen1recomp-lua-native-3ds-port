@@ -1,24 +1,15 @@
 diff --git a/src/core/SessionLifecycle.lua b/src/core/SessionLifecycle.lua
-index 288cf03c..3424e543 100644
+index 288cf03c..8be5fa19 100644
 --- a/src/core/SessionLifecycle.lua
 +++ b/src/core/SessionLifecycle.lua
-@@ -115,7 +115,18 @@ function SessionLifecycle.endGameSession(game)
+@@ -115,7 +115,9 @@ function SessionLifecycle.endGameSession(game)
  end
  
  function SessionLifecycle.endProcess()
 -  for _, fn in ipairs(processShutdowns) do pcall(fn) end
-+  -- 3DS close-path breadcrumbs (temporary diagnosis): if the HOME-menu close
-+  -- hangs inside one of these joins, the last line in trace3ds.txt names it.
-+  -- Shares CtrTrace/trace3ds.txt with main.lua's love.quit breadcrumbs
-+  -- instead of a second hand-rolled tracer/file.
-+  local trace = require("src.core.CtrTrace")
-+  trace.log("close", "endProcess start")
-+  for i, fn in ipairs(processShutdowns) do
-+    trace.log("close", "shutdown " .. i .. " begin")
++  for _, fn in ipairs(processShutdowns) do
 +    pcall(fn)
-+    trace.log("close", "shutdown " .. i .. " end")
 +  end
-+  trace.log("close", "endProcess done")
  end
  
  return SessionLifecycle
