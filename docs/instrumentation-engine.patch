@@ -1,0 +1,310 @@
+diff --color -ruN engine/platform/ctr/source/modules/fontmodule_ext.cpp ../instr-before/engine/platform/ctr/source/modules/fontmodule_ext.cpp
+--- engine/platform/ctr/source/modules/fontmodule_ext.cpp	2026-09-19 18:27:28.317793383 -0300
++++ ../instr-before/engine/platform/ctr/source/modules/fontmodule_ext.cpp	2026-09-19 18:23:58.519236434 -0300
+@@ -64,7 +64,13 @@
+     if (!font)
+     {
+         /* Returning nullptr here handed FontModule a NULL ByteData and the
+-        ** first newFont died in memcpy (crash dump 23, CIA). */
++        ** first newFont died in memcpy (crash dump 23, CIA).  Say why. */
++        if (FILE* log = std::fopen("sdmc:/gen1_init.txt", "a"))
++        {
++            std::fprintf(log, "system font: linearAlloc(%lu) failed; file=%ld linearFree=%lu\n",
++                         (unsigned long)fontSize, size, (unsigned long)linearSpaceFree());
++            std::fclose(log);
++        }
+         throw love::Exception("Not enough linear memory for the system font (%lu bytes).",
+                               (unsigned long)fontSize);
+     }
+diff --color -ruN engine/platform/ctr/source/modules/love_ext.cpp ../instr-before/engine/platform/ctr/source/modules/love_ext.cpp
+--- engine/platform/ctr/source/modules/love_ext.cpp	2026-09-19 18:27:28.313655187 -0300
++++ ../instr-before/engine/platform/ctr/source/modules/love_ext.cpp	2026-09-19 18:23:58.504690270 -0300
+@@ -6,6 +6,7 @@
+ 
+ #include <utilities/driver/hid_ext.hpp>
+ 
++extern "C" void love_ctr_closelog(const char* msg); // renderer_ext.cpp
+ extern bool love_ctr_apt_closing;                   // renderer_ext.cpp
+ 
+ using namespace love;
+@@ -41,6 +42,7 @@
+     static int graceFrames = 0;
+     if (graceFrames == 0)
+     {
++        love_ctr_closelog("grace-start (aptMainLoop=false, Lua still running)");
+ 
+         /* the APTHOOK_ONEXIT hook did NOT fire on a HOME-menu close under
+         ** hbloader (verified by close-log on hardware), so neither the
+@@ -52,6 +54,8 @@
+         love_ctr_apt_closing = true;
+         HID<Console::CTR>::Instance().SendQuit();
+     }
++    if ((graceFrames % 60) == 59)
++        love_ctr_closelog("grace tick");
+     return (++graceFrames < 300);
+ }
+ 
+diff --color -ruN engine/platform/ctr/source/runtime.cpp ../instr-before/engine/platform/ctr/source/runtime.cpp
+--- engine/platform/ctr/source/runtime.cpp	2026-09-19 18:27:28.305216995 -0300
++++ ../instr-before/engine/platform/ctr/source/runtime.cpp	2026-09-19 18:23:58.515775989 -0300
+@@ -2,6 +2,7 @@
+ 
+ #include <utilities/result.hpp>
+ 
++#include <cerrno>
+ #include <cstdio>
+ #include <unistd.h>
+ #include <cstring>
+@@ -70,7 +71,16 @@
+         ** SD root, so pin the same working directory here; the game tree
+         ** then lives in one place for both install methods. */
+         if (!envIsHomebrew())
+-            chdir("sdmc:/3ds");
++        {
++            const int rc = chdir("sdmc:/3ds");
++            char cwd[256] = "?";
++            getcwd(cwd, sizeof(cwd));
++            if (FILE* log = std::fopen("sdmc:/gen1_init.txt", "a"))
++            {
++                std::fprintf(log, "chdir(sdmc:/3ds) rc=%d errno=%d cwd=%s\n", rc, errno, cwd);
++                std::fclose(log);
++            }
++        }
+ 
+ #if !defined(__EMULATION__)
+         /* raw battery info */
+@@ -91,6 +101,18 @@
+ 
+         /* theora video conversion */
+         tryInit(std::bind_front(y2rInit), love::ABORT_Y2R);
++
++        /* Memory layout breadcrumb: the 3dsx (Homebrew Launcher) and the CIA
++        ** get different heap splits from libctru; compare the two runs. */
++        extern u32 __ctru_heap_size, __ctru_linear_heap_size;
++        if (FILE* log = std::fopen("sdmc:/gen1_init.txt", "a"))
++        {
++            std::fprintf(log, "%s: heap=%lu linear=%lu linearFree=%lu appRegion=%lu\n",
++                         envIsHomebrew() ? "3dsx" : "cia", (unsigned long)__ctru_heap_size,
++                         (unsigned long)__ctru_linear_heap_size, (unsigned long)linearSpaceFree(),
++                         (unsigned long)osGetMemRegionSize(MEMREGION_APPLICATION));
++            std::fclose(log);
++        }
+     }
+ 
+     void userAppExit()
+diff --color -ruN engine/platform/ctr/source/utilities/driver/hid_ext.cpp ../instr-before/engine/platform/ctr/source/utilities/driver/hid_ext.cpp
+--- engine/platform/ctr/source/utilities/driver/hid_ext.cpp	2026-09-19 18:27:28.321721839 -0300
++++ ../instr-before/engine/platform/ctr/source/utilities/driver/hid_ext.cpp	2026-09-19 18:23:58.508162492 -0300
+@@ -5,6 +5,7 @@
+ 
+ using namespace love;
+ 
++extern "C" void love_ctr_closelog(const char* msg); // renderer_ext.cpp
+ 
+ #define Module() (Module::GetInstance<JoystickModule<Console::CTR>>(Module::M_JOYSTICK))
+ #define Sensor() (Module::GetInstance<Sensor<Console::CTR>>(Module::M_SENSOR))
+@@ -46,6 +47,7 @@
+             ** This flag turns the renderer into a no-op until _exit. */
+             extern bool love_ctr_apt_closing;
+             love_ctr_apt_closing = true;
++            love_ctr_closelog("apt-onexit hook");
+ 
+             driver.SendQuit();
+             break;
+diff --color -ruN engine/platform/ctr/source/utilities/driver/renderer/framebuffer_ext.cpp ../instr-before/engine/platform/ctr/source/utilities/driver/renderer/framebuffer_ext.cpp
+--- engine/platform/ctr/source/utilities/driver/renderer/framebuffer_ext.cpp	2026-09-19 18:27:28.329420461 -0300
++++ ../instr-before/engine/platform/ctr/source/utilities/driver/renderer/framebuffer_ext.cpp	2026-09-19 18:26:19.076022567 -0300
+@@ -4,6 +4,8 @@
+ 
+ #include <algorithm>
+ 
++extern "C" void love_ctr_trace(const char* fmt, ...); // renderer_ext.cpp
++
+ using namespace love;
+ 
+ Framebuffer<Console::CTR>::Framebuffer() : target(nullptr)
+@@ -120,6 +122,11 @@
+     const auto right  = std::clamp(fbWidth - scissor.y, 0, fbWidth);
+     const auto bottom = std::clamp(fbHeight - scissor.x, 0, fbHeight);
+ 
++    love_ctr_trace("scissor in=%d,%d,%dx%d out=%d,%d,%d,%d%s\n",
++                   scissor.x, scissor.y, scissor.w, scissor.h,
++                   left, top, right, bottom,
++                   (left >= right || top >= bottom) ? " EMPTY" : "");
++
+     if (left >= right || top >= bottom)
+     {
+         /* empty region: NORMAL mode cannot express it (fields underflow), so
+diff --color -ruN engine/platform/ctr/source/utilities/driver/renderer/renderer_ext.cpp ../instr-before/engine/platform/ctr/source/utilities/driver/renderer/renderer_ext.cpp
+--- engine/platform/ctr/source/utilities/driver/renderer/renderer_ext.cpp	2026-09-19 18:27:28.325547609 -0300
++++ ../instr-before/engine/platform/ctr/source/utilities/driver/renderer/renderer_ext.cpp	2026-09-19 18:23:58.496946379 -0300
+@@ -24,11 +24,51 @@
+ ** no-op so the Lua quit path can still run to join its worker threads */
+ bool love_ctr_apt_closing = false;
+ 
++/* close-path breadcrumbs: one fsynced line per stage, so after a hang the
++** last line in sdmc:/gen1_close.txt names the stage that blocked */
++extern "C" void love_ctr_closelog(const char* msg)
++{
++    FILE* file = std::fopen("sdmc:/gen1_close.txt", "a");
++    if (!file)
++        return;
++    std::fprintf(file, "%s\n", msg);
++    std::fflush(file);
++    std::fclose(file);
++}
++
+ static size_t s_queuedVertices; // in m_commands, not yet copied to m_vertices
+ static bool s_dirtySinceSplit;  // any DrawArrays since the last split/frame begin
+ static unsigned s_splitsThisFrame;
+ static unsigned s_peakVertices;
+ 
++/* composition trace for the first few seconds of the run: every target bind,
++** clear, scissor and flush lands in sdmc:/gen1_trace.txt so a frame that
++** composes wrong on hardware can be read line by line over FTP */
++static unsigned s_traceFrames = 240;
++static FILE* s_trace;
++
++extern "C" void love_ctr_trace(const char* fmt, ...); // shared with framebuffer_ext.cpp
++#define tracef love_ctr_trace
++
++extern "C" void love_ctr_trace(const char* fmt, ...)
++{
++    if (s_traceFrames == 0)
++        return;
++
++    if (!s_trace)
++        s_trace = std::fopen("sdmc:/gen1_trace.txt", "w");
++
++    if (!s_trace)
++    {
++        s_traceFrames = 0;
++        return;
++    }
++
++    va_list args;
++    va_start(args, fmt);
++    std::vfprintf(s_trace, fmt, args);
++    va_end(args);
++}
+ static std::optional<GPU_Primitive_t> s_primitive;
+ static PrimitiveType s_primitiveType;
+ 
+@@ -139,6 +179,8 @@
+         ++s_splitsThisFrame;
+     }
+ 
++    tracef("clear %08x split=%d\n", color.abgr(), (int)s_splitsThisFrame);
++
+     C3D_RenderTargetClear(this->context.target, C3D_CLEAR_ALL, color.abgr(), 0);
+ }
+ 
+@@ -209,6 +251,10 @@
+         viewport = { 0, 0, _texture->GetPixelWidth(), _texture->GetPixelHeight() };
+     }
+ 
++    tracef("bind %s vp=%d,%d,%dx%d\n",
++           (texture != nullptr && texture->IsRenderTarget()) ? "canvas" : "screen",
++           viewport.x, viewport.y, viewport.w, viewport.h);
++
+     C3D_FrameDrawOn(this->context.target);
+     this->SetViewport(viewport, this->context.target->linked);
+ }
+@@ -251,6 +297,7 @@
+ 
+         ++drawCallsBatched;
+         C3D_DrawArrays(*s_primitive, m_vertexOffset, command.count);
++        tracef("draw n=%zu\n", command.count);
+         m_vertexOffset += command.count;
+         s_dirtySinceSplit = true;
+     }
+@@ -322,8 +369,37 @@
+         if (m_vertexOffset > s_peakVertices)
+             s_peakVertices = m_vertexOffset;
+ 
++        /* once-a-second render health snapshot, pullable over FTP.  Written
++        ** BEFORE FrameEnd so a frame that wedges the GPU still leaves the
++        ** stats that led up to it on disk. */
++        static unsigned s_presents = 0;
++        if ((++s_presents % 60) == 0)
++        {
++            FILE* file = std::fopen("sdmc:/gen1_stats.txt", "a");
++            if (file)
++            {
++                std::fprintf(file,
++                             "p=%u lin=%u vram=%u cmd=%.3f verts=%u peak=%u splits=%u draws=%d\n",
++                             s_presents, (unsigned)linearSpaceFree(),
++                             (unsigned)vramSpaceFree(), C3D_GetCmdBufUsage(),
++                             (unsigned)m_vertexOffset, s_peakVertices,
++                             s_splitsThisFrame, drawCalls);
++                std::fclose(file);
++            }
++        }
++
+         C3D_FrameEnd(0);
+ 
++        if (s_traceFrames > 0)
++        {
++            tracef("-- present --\n");
++            if (--s_traceFrames == 0 && s_trace)
++            {
++                std::fclose(s_trace);
++                s_trace = nullptr;
++            }
++        }
++
+         m_vertexOffset = 0;
+         s_dirtySinceSplit = false;
+         s_splitsThisFrame = 0;
+diff --color -ruN engine/source/main.cpp ../instr-before/engine/source/main.cpp
+--- engine/source/main.cpp	2026-09-19 18:27:28.301473851 -0300
++++ ../instr-before/engine/source/main.cpp	2026-09-19 18:23:58.511959688 -0300
+@@ -13,6 +13,7 @@
+     #include <utilities/driver/renderer_ext.hpp>
+     #include <3ds.h>
+ extern "C" void userAppExit(void);
++extern "C" void love_ctr_closelog(const char* msg); // renderer_ext.cpp
+ #endif
+ 
+ using namespace love;
+@@ -130,12 +131,18 @@
+     ** crash dumps on exit).  The system is waiting for us to die: tear down
+     ** services and leave now; svcExitProcess reaps the threads.  On a normal
+     ** in-game quit aptMainLoop() is still true and this is skipped. */
++    love_ctr_closelog("runlove loop exited");
+     if (!aptMainLoop())
+     {
++        love_ctr_closelog("fast-exit: dsp shutdown");
+         DSP<Console::Which>::Instance().Shutdown();
++        love_ctr_closelog("fast-exit: renderer shutdown");
+         Renderer<Console::Which>::Instance().Shutdown();
++        love_ctr_closelog("fast-exit: OnExit");
+         love::OnExit<Console::Which>();
++        love_ctr_closelog("fast-exit: userAppExit");
+         userAppExit();
++        love_ctr_closelog("fast-exit: _exit");
+         fflush(NULL);
+         /* NOT svcExitProcess: under hbloader that raises the system's
+         ** "error has occurred, forcing the software to close" dialog and
+@@ -145,6 +152,7 @@
+         ** above stop the ndsp and gsp threads). */
+         _exit(0);
+     }
++    love_ctr_closelog("normal path: lua_close");
+ #endif
+ 
+     lua_close(L);
+@@ -195,9 +203,13 @@
+     ** the gfx service, then the system services userAppExit closes -- all of
+     ** which normally live in destructors/atexit handlers that _exit skips */
+     {
++        love_ctr_closelog("main tail: dsp shutdown");
+         DSP<Console::Which>::Instance().Shutdown();
++        love_ctr_closelog("main tail: renderer shutdown");
+         Renderer<Console::Which>::Instance().Shutdown();
++        love_ctr_closelog("main tail: userAppExit");
+         userAppExit();
++        love_ctr_closelog("main tail: _exit");
+     }
+     fflush(NULL);
+     /* same rationale as the fast-exit path above */

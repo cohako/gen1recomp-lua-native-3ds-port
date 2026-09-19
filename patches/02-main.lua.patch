@@ -1,8 +1,8 @@
 diff --git a/main.lua b/main.lua
-index 256f65f1..bd5c2b65 100644
+index 256f65f1..e766e8b4 100644
 --- a/main.lua
 +++ b/main.lua
-@@ -15,6 +15,51 @@ end
+@@ -15,6 +15,25 @@ end
  
  local editorMode = os.getenv("POKEPORT_EDITOR") == "1" or POKEPORT_EDITOR_MODE == true
  
@@ -20,32 +20,6 @@ index 256f65f1..bd5c2b65 100644
 +    -- so a no-op keeps every caller on its colorless fallback.
 +    love.graphics.setShader = love.graphics.setShader or function() end
 +
-+    -- Freeze probe (opt-in diagnostic, off by default): once a second,
-+    -- record what the game THINKS it drew.  The engine-side telemetry showed
-+    -- the main loop alive and the draw count dropping during the on-device
-+    -- screen freeze; this tells whether the world pass stopped running (game
-+    -- logic) or ran and never showed (engine).  Pulled over FTP from the save
-+    -- dir.  Does blocking SD-card I/O, so it must never run unattended on a
-+    -- shipped build -- set POKEPORT_CTR_PROBE=1 to enable it for a debug run.
-+    local okProbe, wantProbe = pcall(os.getenv, "POKEPORT_CTR_PROBE")
-+    if okProbe and wantProbe == "1" then
-+      local probeFrames = 0
-+      _G.__ctrProbeAfterDraw = function(Game)
-+        probeFrames = probeFrames + 1
-+        if probeFrames == 1 then
-+          pcall(function()
-+            love.filesystem.write("probe3ds.txt", "probe start\n")
-+          end)
-+        end
-+        if probeFrames % 60 ~= 0 then return end
-+        pcall(function()
-+          local audio = require("src.core.ChipAudio")
-+          local state = audio.debugState and audio.debugState() or "n/a"
-+          love.filesystem.append("probe3ds.txt",
-+            ("f=%d audio: %s\n"):format(probeFrames, state))
-+        end)
-+      end
-+    end
 +  end
 +end
 +
@@ -54,7 +28,7 @@ index 256f65f1..bd5c2b65 100644
  local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
  local LaunchOptions = require("src.core.LaunchOptions")
  local NxDisplay = require("src.core.NxDisplay")
-@@ -838,7 +883,16 @@ function love.update(dt)
+@@ -838,7 +857,16 @@ function love.update(dt)
    PlatformHooks.update(Game, dt)
  end
  
@@ -72,7 +46,7 @@ index 256f65f1..bd5c2b65 100644
    if editorMode then
      GameViewport.reset()
      HostDisplay.beginFrame("editor", EditorApp)
-@@ -877,6 +931,7 @@ function love.draw()
+@@ -877,6 +905,7 @@ function love.draw()
  
    HostDisplay.beginFrame("game", Game)
    Game:draw()
@@ -80,37 +54,3 @@ index 256f65f1..bd5c2b65 100644
    -- frame capture requested by a driver
    if Game.capturePath then
      local path = Game.capturePath
-@@ -1368,6 +1423,12 @@ function love.quit()
-   -- every quit while warning that leftover threads make that unreliable.
-   -- SessionLifecycle workers (ChipAudio / Fetch / Check) make that warning
-   -- real -- endProcess joins them, then the native restart still blows up.
-+  -- 3DS close-path breadcrumb (temporary diagnosis, pairs with the engine's
-+  -- gen1_close.txt): proves love.quit ran and which branch it took.
-+  -- Shares CtrTrace/trace3ds.txt with SessionLifecycle.endProcess's
-+  -- close-path breadcrumbs instead of a second hand-rolled tracer/file.
-+  local ctrTrace = require("src.core.CtrTrace")
-+  ctrTrace.log("close", "love.quit enter")
-   local osName = love.system and love.system.getOS and love.system.getOS()
-   local inProcessReturn = (osName == "Android" or osName == "iOS")
-   local wouldReturnToLauncher = PlatformHooks.quitToLauncher(function()
-@@ -1375,6 +1436,7 @@ function love.quit()
-       and (inProcessReturn or not launchedIntoGame)
-   end)
-   if wouldReturnToLauncher then
-+    ctrTrace.log("close", "branch: restart-to-launcher")
-     if inProcessReturn then
-       returnToLauncher()
-       return true -- abort this quit; stay in the same LOVE run
-@@ -1387,10 +1449,12 @@ function love.quit()
-     require("src.core.HostShell").restart()
-     return true -- abort this quit; the restart lands back in the launcher
-   end
-+  ctrTrace.log("close", "branch: final quit -> endProcess")
-   pcall(function()
-     require("src.core.DiscordPresence").shutdown()
-   end)
-   SessionLifecycle.endProcess()
-+  ctrTrace.log("close", "love.quit done")
- end
- 
- function love.filedropped(file)

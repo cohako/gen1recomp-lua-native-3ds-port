@@ -2,7 +2,6 @@
 
 #include <utilities/result.hpp>
 
-#include <cerrno>
 #include <cstdio>
 #include <unistd.h>
 #include <cstring>
@@ -71,16 +70,7 @@ extern "C"
         ** SD root, so pin the same working directory here; the game tree
         ** then lives in one place for both install methods. */
         if (!envIsHomebrew())
-        {
-            const int rc = chdir("sdmc:/3ds");
-            char cwd[256] = "?";
-            getcwd(cwd, sizeof(cwd));
-            if (FILE* log = std::fopen("sdmc:/gen1_init.txt", "a"))
-            {
-                std::fprintf(log, "chdir(sdmc:/3ds) rc=%d errno=%d cwd=%s\n", rc, errno, cwd);
-                std::fclose(log);
-            }
-        }
+            chdir("sdmc:/3ds");
 
 #if !defined(__EMULATION__)
         /* raw battery info */
@@ -101,18 +91,6 @@ extern "C"
 
         /* theora video conversion */
         tryInit(std::bind_front(y2rInit), love::ABORT_Y2R);
-
-        /* Memory layout breadcrumb: the 3dsx (Homebrew Launcher) and the CIA
-        ** get different heap splits from libctru; compare the two runs. */
-        extern u32 __ctru_heap_size, __ctru_linear_heap_size;
-        if (FILE* log = std::fopen("sdmc:/gen1_init.txt", "a"))
-        {
-            std::fprintf(log, "%s: heap=%lu linear=%lu linearFree=%lu appRegion=%lu\n",
-                         envIsHomebrew() ? "3dsx" : "cia", (unsigned long)__ctru_heap_size,
-                         (unsigned long)__ctru_linear_heap_size, (unsigned long)linearSpaceFree(),
-                         (unsigned long)osGetMemRegionSize(MEMREGION_APPLICATION));
-            std::fclose(log);
-        }
     }
 
     void userAppExit()

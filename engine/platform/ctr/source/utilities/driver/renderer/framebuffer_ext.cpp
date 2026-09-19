@@ -4,8 +4,6 @@
 
 #include <algorithm>
 
-extern "C" void love_ctr_trace(const char* fmt, ...); // renderer_ext.cpp
-
 using namespace love;
 
 Framebuffer<Console::CTR>::Framebuffer() : target(nullptr)
@@ -121,11 +119,6 @@ void Framebuffer<Console::CTR>::SetScissor(const Rect& scissor, bool canvasActiv
     const auto top    = std::clamp(fbHeight - (scissor.x + scissor.w), 0, fbHeight);
     const auto right  = std::clamp(fbWidth - scissor.y, 0, fbWidth);
     const auto bottom = std::clamp(fbHeight - scissor.x, 0, fbHeight);
-
-    love_ctr_trace("scissor in=%d,%d,%dx%d out=%d,%d,%d,%d%s\n",
-                   scissor.x, scissor.y, scissor.w, scissor.h,
-                   left, top, right, bottom,
-                   (left >= right || top >= bottom) ? " EMPTY" : "");
 
     if (left >= right || top >= bottom)
     {

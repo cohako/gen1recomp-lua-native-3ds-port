@@ -1,0 +1,258 @@
+diff --color -ruN game/main.lua ../instr-before/game/main.lua
+--- game/main.lua	2026-09-19 18:27:28.339468037 -0300
++++ ../instr-before/game/main.lua	2026-09-19 18:23:58.526557015 -0300
+@@ -29,6 +29,32 @@
+     -- so a no-op keeps every caller on its colorless fallback.
+     love.graphics.setShader = love.graphics.setShader or function() end
+ 
++    -- Freeze probe (opt-in diagnostic, off by default): once a second,
++    -- record what the game THINKS it drew.  The engine-side telemetry showed
++    -- the main loop alive and the draw count dropping during the on-device
++    -- screen freeze; this tells whether the world pass stopped running (game
++    -- logic) or ran and never showed (engine).  Pulled over FTP from the save
++    -- dir.  Does blocking SD-card I/O, so it must never run unattended on a
++    -- shipped build -- set POKEPORT_CTR_PROBE=1 to enable it for a debug run.
++    local okProbe, wantProbe = pcall(os.getenv, "POKEPORT_CTR_PROBE")
++    if okProbe and wantProbe == "1" then
++      local probeFrames = 0
++      _G.__ctrProbeAfterDraw = function(Game)
++        probeFrames = probeFrames + 1
++        if probeFrames == 1 then
++          pcall(function()
++            love.filesystem.write("probe3ds.txt", "probe start\n")
++          end)
++        end
++        if probeFrames % 60 ~= 0 then return end
++        pcall(function()
++          local audio = require("src.core.ChipAudio")
++          local state = audio.debugState and audio.debugState() or "n/a"
++          love.filesystem.append("probe3ds.txt",
++            ("f=%d audio: %s\n"):format(probeFrames, state))
++        end)
++      end
++    end
+   end
+ end
+ 
+@@ -1397,6 +1423,12 @@
+   -- every quit while warning that leftover threads make that unreliable.
+   -- SessionLifecycle workers (ChipAudio / Fetch / Check) make that warning
+   -- real -- endProcess joins them, then the native restart still blows up.
++  -- 3DS close-path breadcrumb (temporary diagnosis, pairs with the engine's
++  -- gen1_close.txt): proves love.quit ran and which branch it took.
++  -- Shares CtrTrace/trace3ds.txt with SessionLifecycle.endProcess's
++  -- close-path breadcrumbs instead of a second hand-rolled tracer/file.
++  local ctrTrace = require("src.core.CtrTrace")
++  ctrTrace.log("close", "love.quit enter")
+   local osName = love.system and love.system.getOS and love.system.getOS()
+   local inProcessReturn = (osName == "Android" or osName == "iOS")
+   local wouldReturnToLauncher = PlatformHooks.quitToLauncher(function()
+@@ -1404,6 +1436,7 @@
+       and (inProcessReturn or not launchedIntoGame)
+   end)
+   if wouldReturnToLauncher then
++    ctrTrace.log("close", "branch: restart-to-launcher")
+     if inProcessReturn then
+       returnToLauncher()
+       return true -- abort this quit; stay in the same LOVE run
+@@ -1416,10 +1449,12 @@
+     require("src.core.HostShell").restart()
+     return true -- abort this quit; the restart lands back in the launcher
+   end
++  ctrTrace.log("close", "branch: final quit -> endProcess")
+   pcall(function()
+     require("src.core.DiscordPresence").shutdown()
+   end)
+   SessionLifecycle.endProcess()
++  ctrTrace.log("close", "love.quit done")
+ end
+ 
+ function love.filedropped(file)
+diff --color -ruN game/src/core/ChipAudio.lua ../instr-before/game/src/core/ChipAudio.lua
+--- game/src/core/ChipAudio.lua	2026-09-19 18:27:28.355559488 -0300
++++ ../instr-before/game/src/core/ChipAudio.lua	2026-09-19 18:23:58.533611355 -0300
+@@ -217,28 +217,34 @@
+ end
+ 
+ function ChipAudio.playMusic(data, header, allowLoops)
++  local Trace = require("src.core.CtrTrace")
+   -- 3DS: real-time chip synthesis is unviable in interpreted Lua on this CPU
+   -- (measured ~1 buffer per 8s -- the worker never catches up, burning a
+   -- core and lagging the game for music that never plays).  Until the
+   -- import-time pre-render cache lands, map/battle music is silent here;
+   -- SFX and cries stay (short, synchronous, affordable).
+   if require("src.core.Console").is3DS() then
++    Trace.log("chip", "playMusic skipped (3DS: awaiting pre-rendered cache)")
+     return nil, "3DS: chip music awaits pre-rendered cache"
+   end
+   if not ensureWorker() then
++    Trace.log("chip", "playMusic -> SYNC fallback (worker unavailable)")
+     return playMusicSync(data, header, allowLoops)
+   end
++  Trace.log("chip", "playMusic -> threaded")
+   -- validate the def on this thread (cheap: engine construction, no synthesis)
+   -- so a broken def costs nothing but a log line and keeps the old song
+   local ok, engine = pcall(ChipSynth.newEngine, data, header,
+                            { allowLoops = allowLoops })
+   if not ok then
++    Trace.log("chip", "newEngine FAILED: " .. tostring(engine))
+     return nil, engine
+   end
+   -- build the new source before tearing the old song down
+   local ok2, source = pcall(
+     love.audio.newQueueableSource, sampleRate(), 16, 2, MUSIC_BUFFER_COUNT)
+   if not ok2 then
++    Trace.log("chip", "newQueueableSource FAILED: " .. tostring(source))
+     return nil, source
+   end
+   ChipAudio.stopMusic()
+@@ -291,6 +297,7 @@
+       m.finished = true
+     elseif buf.error then
+       require("src.core.Logger").warn("chip audio: %s", tostring(buf.error))
++      require("src.core.CtrTrace").log("chip", "worker buffer ERROR: " .. tostring(buf.error))
+       m.finished = true
+     elseif buf.sd then
+       if buf.jit ~= nil then statWorkerJit = buf.jit end
+@@ -312,7 +319,10 @@
+     end
+   end
+   if not m.started and not musicHeld and readyToStart(m) then
+-    pcall(function() m.source:play() end)
++    local okPlay, errPlay = pcall(function() m.source:play() end)
++    require("src.core.CtrTrace").log("chip",
++      ("source:play ok=%s err=%s queued=%s"):format(
++        tostring(okPlay), tostring(errPlay), tostring(queuedBuffers(m.source))))
+     m.started = true
+   end
+ end
+diff --color -ruN game/src/core/CtrTrace.lua ../instr-before/game/src/core/CtrTrace.lua
+--- game/src/core/CtrTrace.lua	1969-12-31 21:00:00.000000000 -0300
++++ ../instr-before/game/src/core/CtrTrace.lua	2026-09-19 18:23:58.551123372 -0300
+@@ -0,0 +1,27 @@
++-- On-device diagnostic trace for the 3DS bring-up (temporary tooling).
++--
++-- One line per event in trace3ds.txt: "t=<seconds> [tag] message".  No-op on
++-- every other platform, so call sites can stay in place while the port
++-- stabilizes and cost nothing elsewhere.  Pulled off the console over FTP.
++local CtrTrace = {}
++
++local enabled
++local function isEnabled()
++  if enabled == nil then
++    local ok, Console = pcall(require, "src.core.Console")
++    enabled = ok and Console.is3DS() and love and love.filesystem ~= nil
++    if enabled then
++      pcall(love.filesystem.write, "trace3ds.txt", "-- trace start --\n")
++    end
++  end
++  return enabled
++end
++
++function CtrTrace.log(tag, msg)
++  if not isEnabled() then return end
++  local t = (love.timer and love.timer.getTime and love.timer.getTime()) or 0
++  pcall(love.filesystem.append, "trace3ds.txt",
++        ("t=%.2f [%s] %s\n"):format(t, tag, tostring(msg)))
++end
++
++return CtrTrace
+diff --color -ruN game/src/core/Music.lua ../instr-before/game/src/core/Music.lua
+--- game/src/core/Music.lua	2026-09-19 18:27:28.364103378 -0300
++++ ../instr-before/game/src/core/Music.lua	2026-09-19 18:23:58.537217767 -0300
+@@ -228,9 +228,12 @@
+ -- once this succeeded, so a broken def costs nothing but a log line.
+ -- Returns src, loopSrc, isChip -- or nil plus the reason.
+ local function startSong(data, def, wantLoop)
++  local Trace = require("src.core.CtrTrace")
+   if def.chip or (def.address and def.bank) then
+     local ok, src, playErr = pcall(
+       require("src.core.ChipAudio").playMusic, data, def, wantLoop)
++    Trace.log("music", ("startSong chip bank=%s addr=%s -> ok=%s src=%s"):format(
++      tostring(def.bank), tostring(def.address), tostring(ok), tostring(src)))
+     if ok and src then return src, nil, true end
+     -- pcall's own failure (ok == false) puts the error in `src`; a clean
+     -- call that simply declined to produce a source (ok == true, src == nil)
+@@ -238,6 +241,7 @@
+     if not ok then return nil, nil, nil, tostring(src) end
+     return nil, nil, nil, playErr and tostring(playErr) or "no source"
+   elseif def.file then
++    Trace.log("music", "startSong file " .. tostring(def.file))
+     local src, err = newSource(def.file)
+     if not src then return nil, nil, nil, err end
+     -- a missing loop body degrades to the intro file alone
+diff --color -ruN game/src/core/SessionLifecycle.lua ../instr-before/game/src/core/SessionLifecycle.lua
+--- game/src/core/SessionLifecycle.lua	2026-09-19 18:27:28.359450890 -0300
++++ ../instr-before/game/src/core/SessionLifecycle.lua	2026-09-19 18:23:58.530032840 -0300
+@@ -115,9 +115,18 @@
+ end
+ 
+ function SessionLifecycle.endProcess()
+-  for _, fn in ipairs(processShutdowns) do
++  -- 3DS close-path breadcrumbs (temporary diagnosis): if the HOME-menu close
++  -- hangs inside one of these joins, the last line in trace3ds.txt names it.
++  -- Shares CtrTrace/trace3ds.txt with main.lua's love.quit breadcrumbs
++  -- instead of a second hand-rolled tracer/file.
++  local trace = require("src.core.CtrTrace")
++  trace.log("close", "endProcess start")
++  for i, fn in ipairs(processShutdowns) do
++    trace.log("close", "shutdown " .. i .. " begin")
+     pcall(fn)
++    trace.log("close", "shutdown " .. i .. " end")
+   end
++  trace.log("close", "endProcess done")
+ end
+ 
+ return SessionLifecycle
+diff --color -ruN game/src/import/ExtractThread.lua ../instr-before/game/src/import/ExtractThread.lua
+--- game/src/import/ExtractThread.lua	2026-09-19 18:27:28.351288891 -0300
++++ ../instr-before/game/src/import/ExtractThread.lua	2026-09-19 18:23:58.544139444 -0300
+@@ -47,6 +47,7 @@
+         progressChannel:push({
+           progress = progress, total = total, stage = stage,
+           current = current, stageTotal = stageTotal,
++          memKB = collectgarbage("count"),
+         })
+       end
+     end, romSha1)
+diff --color -ruN game/src/import/RomImporter.lua ../instr-before/game/src/import/RomImporter.lua
+--- game/src/import/RomImporter.lua	2026-09-19 18:27:28.347163080 -0300
++++ ../instr-before/game/src/import/RomImporter.lua	2026-09-19 18:23:58.540742842 -0300
+@@ -1968,6 +1968,10 @@
+   if not job then return end
+   local msg = job.progress:pop()
+   while msg do
++    if msg.stage ~= self.status then
++      require("src.core.CtrTrace").log("import", ("%s mem=%.1fMB files=%d/%d")
++        :format(msg.stage, (msg.memKB or 0) / 1024, msg.progress, msg.total))
++    end
+     self.status = msg.stage
+     self.progress = msg.progress / msg.total
+     self.stageCurrent = msg.current
+@@ -1980,12 +1984,14 @@
+     local threadError = job.thread.getError and job.thread:getError()
+     if threadError then
+       self._extract = nil
++      require("src.core.CtrTrace").log("import", "thread died: " .. tostring(threadError))
+       self:setError(tostring(threadError), job.version)
+     end
+     return
+   end
+   self._extract = nil
+   if not res.ok then
++    require("src.core.CtrTrace").log("import", "failed: " .. tostring(res.error))
+     self:setError(tostring(res.error), job.version)
+     return
+   end
+diff --color -ruN game/src/render/PixelCanvas.lua ../instr-before/game/src/render/PixelCanvas.lua
+--- game/src/render/PixelCanvas.lua	2026-09-19 18:27:28.343402547 -0300
++++ ../instr-before/game/src/render/PixelCanvas.lua	2026-09-19 18:23:58.547366981 -0300
+@@ -39,6 +39,8 @@
+   if not ok then
+     -- keep the size in the error: "Failed to create framebuffer Texture"
+     -- alone does not say WHICH allocation ran the console out of VRAM
++    require("src.core.CtrTrace").log("canvas",
++      ("newCanvas %sx%s FAILED: %s"):format(tostring(w), tostring(h), tostring(canvas)))
+     error(("%s (canvas %sx%s)"):format(tostring(canvas), tostring(w), tostring(h)), 2)
+   end
+   if filter and canvas and canvas.setFilter then

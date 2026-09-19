@@ -13,7 +13,6 @@
     #include <utilities/driver/renderer_ext.hpp>
     #include <3ds.h>
 extern "C" void userAppExit(void);
-extern "C" void love_ctr_closelog(const char* msg); // renderer_ext.cpp
 #endif
 
 using namespace love;
@@ -131,18 +130,12 @@ DoneAction RunLOVE(int argc, char** argv, int& retval, Variant& restartValue)
     ** crash dumps on exit).  The system is waiting for us to die: tear down
     ** services and leave now; svcExitProcess reaps the threads.  On a normal
     ** in-game quit aptMainLoop() is still true and this is skipped. */
-    love_ctr_closelog("runlove loop exited");
     if (!aptMainLoop())
     {
-        love_ctr_closelog("fast-exit: dsp shutdown");
         DSP<Console::Which>::Instance().Shutdown();
-        love_ctr_closelog("fast-exit: renderer shutdown");
         Renderer<Console::Which>::Instance().Shutdown();
-        love_ctr_closelog("fast-exit: OnExit");
         love::OnExit<Console::Which>();
-        love_ctr_closelog("fast-exit: userAppExit");
         userAppExit();
-        love_ctr_closelog("fast-exit: _exit");
         fflush(NULL);
         /* NOT svcExitProcess: under hbloader that raises the system's
         ** "error has occurred, forcing the software to close" dialog and
@@ -152,7 +145,6 @@ DoneAction RunLOVE(int argc, char** argv, int& retval, Variant& restartValue)
         ** above stop the ndsp and gsp threads). */
         _exit(0);
     }
-    love_ctr_closelog("normal path: lua_close");
 #endif
 
     lua_close(L);
@@ -203,13 +195,9 @@ int main(int argc, char** argv)
     ** the gfx service, then the system services userAppExit closes -- all of
     ** which normally live in destructors/atexit handlers that _exit skips */
     {
-        love_ctr_closelog("main tail: dsp shutdown");
         DSP<Console::Which>::Instance().Shutdown();
-        love_ctr_closelog("main tail: renderer shutdown");
         Renderer<Console::Which>::Instance().Shutdown();
-        love_ctr_closelog("main tail: userAppExit");
         userAppExit();
-        love_ctr_closelog("main tail: _exit");
     }
     fflush(NULL);
     /* same rationale as the fast-exit path above */

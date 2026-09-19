@@ -1,5 +1,5 @@
 diff --git a/src/import/ExtractThread.lua b/src/import/ExtractThread.lua
-index e4631eb4..86900fd0 100644
+index e4631eb4..eb449952 100644
 --- a/src/import/ExtractThread.lua
 +++ b/src/import/ExtractThread.lua
 @@ -22,6 +22,11 @@ local resultChannel = love.thread.getChannel(resultName)
@@ -14,11 +14,3 @@ index e4631eb4..86900fd0 100644
  local ok, err = pcall(function()
    local CacheFs = require("src.import.CacheFs")
    CacheFs.prefix = prefix
-@@ -42,6 +47,7 @@ local ok, err = pcall(function()
-         progressChannel:push({
-           progress = progress, total = total, stage = stage,
-           current = current, stageTotal = stageTotal,
-+          memKB = collectgarbage("count"),
-         })
-       end
-     end, romSha1)
