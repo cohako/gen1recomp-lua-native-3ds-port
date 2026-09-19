@@ -1,27 +1,78 @@
 name: Release
 
-# Manual only.  Run from the Actions tab with the tag to publish (e.g. v0.1.0);
-# the tag must already exist on master.  Builds everything from that tag and
-# creates the GitHub Release with the SD-card zip, the CIA and the engine ELF.
+# Manual only.  Run from the Actions tab.  Leave "version" blank to
+# auto-increment the patch number from the newest vX.Y.Z tag, or give an exact
+# X.Y.Z.  The workflow builds master, creates the tag and the GitHub Release
+# itself, and attaches every 3DS artifact plus sha256sums.txt -- same shape as
+# upstream gen1recomp's releases ("Download the right version for your device").
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Existing git tag to release (e.g. v0.1.0)"
-        required: true
-        type: string
+      version:
+        description: "Exact version to release (e.g. 0.0.1). Leave blank to auto-increment."
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    name: determine release version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - id: ver
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          semver_re='^[0-9]+\.[0-9]+\.[0-9]+$'
+          if [ -n "${DISPATCH_VERSION:-}" ]; then
+            printf '%s' "$DISPATCH_VERSION" | grep -Eq "$semver_re" \
+              || { echo "::error::Invalid version '$DISPATCH_VERSION' (expected X.Y.Z)"; exit 1; }
+            version="$DISPATCH_VERSION"
+          else
+            latest="$(git tag -l 'v*' | sed -E 's/^v//' | grep -E "$semver_re" \
+              | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 || true)"
+            if [ -z "$latest" ]; then
+              version="0.0.1"
+            else
+              major="${latest%%.*}"; rest="${latest#*.}"; minor="${rest%%.*}"; patch="${rest##*.}"
+              patch=$((patch + 1))
+              if [ "$patch" -gt 15 ]; then minor=$((minor + 1)); patch=0; fi   # CIA title version: 4-bit micro
+              version="${major}.${minor}.${patch}"
+            fi
+          fi
+          tag="v${version}"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::Tag $tag already exists. Pick a different version."; exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::Release $tag already exists. Pick a different version."; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag"
+
   game:
     name: assemble game
+    needs: version
     runs-on: ubuntu-latest
     container: nickblah/luajit:2.1-luarocks-ubuntu
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with: { ref: "${{ inputs.tag }}" }
       - run: apt-get update -qq && apt-get install -y -qq git >/dev/null
       - run: sh tools/assemble.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -29,13 +80,15 @@ jobs:
 
   engine:
     name: build LÖVE Potion (3DS)
+    needs: version
     runs-on: ubuntu-latest
     container: devkitpro/devkitarm:latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with: { ref: "${{ inputs.tag }}" }
       - working-directory: engine
-        run: cmake -S . -B build -Wno-dev >/dev/null && ninja -C build
+        run: |
+          cmake -G Ninja -S . -B build -Wno-dev -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/cmake/3DS.cmake >/dev/null
+          ninja -C build
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: engine
@@ -45,29 +98,73 @@ jobs:
 
   release:
     name: package + publish
-    needs: [game, engine]
+    needs: [version, game, engine]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      issues: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with: { ref: "${{ inputs.tag }}" }
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: game, path: work/game }
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: engine, path: engine-out }
-      - name: zip (SD card layout)
-        env: { TAG: "${{ inputs.tag }}" }
-        run: sh tools/package.sh engine-out/lovepotion.3dsx "$TAG"
-      - name: CIA
-        env: { TAG: "${{ inputs.tag }}" }
-        run: sh tools/cia/make_cia.sh engine-out/lovepotion.elf dist/gen1recomp.cia "$TAG"
+      - name: package
+        env:
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          out=dist/release; mkdir -p "$out"
+          sh tools/package.sh engine-out/lovepotion.3dsx "$V"
+          mv "dist/gen1recomp-${V}-3ds.zip" "$out/"
+          sh tools/cia/make_cia.sh engine-out/lovepotion.elf "$out/gen1recomp-${V}-3ds.cia" "v$V"
+          cp engine-out/lovepotion.elf "$out/gen1recomp-${V}-3ds-symbols.elf"
+          (cd "$out" && sha256sum gen1recomp-* > sha256sums.txt && cat sha256sums.txt)
       - name: publish GitHub Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          tag_name: ${{ inputs.tag }}
-          generate_release_notes: true
-          files: |
-            dist/gen1recomp-3ds-*.zip
-            dist/gen1recomp.cia
-            engine-out/lovepotion.elf
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Issues closed since the previous tag: closing keywords in commit
+          # messages and in the merged PRs' titles/bodies, plus GitHub's own
+          # closing links; contributors from the same PRs (upstream's recipe).
+          prev_tag="$(git tag -l 'v*' --sort=-v:refname | grep -v "^${TAG}$" | head -1 || true)"
+          range="${prev_tag:+${prev_tag}..}$GITHUB_SHA"
+          scan_closes() { grep -iE '\b(close[sd]?|fix(es|ed)?|resolve[sd]?)\b' | grep -oE '#[0-9]+' | tr -d '#' || true; }
+          nums=" $(git log --pretty=%B "$range" | scan_closes | tr '\n' ' ')"
+          prs="$(git log --pretty=%H "$range" | xargs -I{} gh api "repos/$GITHUB_REPOSITORY/commits/{}/pulls" --jq '.[].number' 2>/dev/null | sort -un || true)"
+          authors=""
+          for pr in $prs; do
+            nums+=" $(gh pr view "$pr" --json title,body,closingIssuesReferences --jq '(.title + "\n" + .body) , (.closingIssuesReferences[].number|tostring)' 2>/dev/null | scan_closes | tr '\n' ' ')"
+            authors+=" $(gh pr view "$pr" --json author --jq '.author.login' 2>/dev/null || true)"
+          done
+          closed=""
+          for n in $(printf '%s\n' $nums | sort -un); do
+            title="$(gh issue view "$n" --json title --jq '.title' 2>/dev/null || true)"
+            [ -n "$title" ] && closed+="- #$n $title"$'\n'
+          done
+          contributors="$(printf '%s\n' $authors | grep -v '^$' | sort -u | sed 's/^/- @/' || true)"
+
+          notes="Download the right version for your device below."
+          notes+=$'\n\n'"| Asset | What |"$'\n'"|---|---|"
+          notes+=$'\n'"| \`gen1recomp-${V}-3ds.zip\` | Homebrew Launcher: extract onto the SD card root (\`3ds/gen1recomp.3dsx\` + \`3ds/game/\`). |"
+          notes+=$'\n'"| \`gen1recomp-${V}-3ds.cia\` | HOME menu title: install with FBI. Uses the same \`3ds/game\` and \`3ds/save\` folders. |"
+          notes+=$'\n'"| \`gen1recomp-${V}-3ds-symbols.elf\` | Debug symbols for decoding Luma crash dumps (\`arm-none-eabi-addr2line\`). |"
+          notes+=$'\n'"| \`sha256sums.txt\` | Checksums of the above. |"
+          notes+=$'\n\n'"Requires Luma3DS, \`sdmc:/3ds/dspfirm.cdc\` (Rosalina → Dump DSP firmware) and a ROM cache imported on the PC (see README)."
+          [ -n "$closed" ] && notes+=$'\n\n## Issues closed\n\n'"$closed"
+          [ -n "$contributors" ] && notes+=$'\n\n## Contributors\n\n'"$contributors"
+          printf 'Release notes:\n%s\n' "$notes"
+
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "$V" --notes "$notes" \
+            "dist/release/gen1recomp-${V}-3ds.zip" \
+            "dist/release/gen1recomp-${V}-3ds.cia" \
+            "dist/release/gen1recomp-${V}-3ds-symbols.elf" \
+            "dist/release/sha256sums.txt"
+          echo "Published release $TAG"

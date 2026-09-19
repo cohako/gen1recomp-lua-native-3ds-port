@@ -4,6 +4,7 @@
 #   3ds/game/...
 #   INSTALL.txt
 #
+# Output: dist/gen1recomp-<version>-3ds.zip (upstream's <name>-<version>-<platform> naming)
 # Usage: tools/package.sh <path/to/gen1recomp.3dsx> [version]
 #   expects work/game from tools/assemble.sh
 set -eu
@@ -13,7 +14,7 @@ DSX=${1:?usage: package.sh <gen1recomp.3dsx> [version]}
 VERSION=${2:-dev}
 GAME="$ROOT/work/game"
 STAGE="$ROOT/dist/stage"
-OUT="$ROOT/dist/gen1recomp-3ds-$VERSION.zip"
+OUT="$ROOT/dist/gen1recomp-$VERSION-3ds.zip"
 
 [ -d "$GAME" ] || { echo "package: run tools/assemble.sh first" >&2; exit 1; }
 rm -rf "$STAGE" "$OUT"; mkdir -p "$STAGE/3ds"
@@ -30,8 +31,8 @@ Gen1Recomp - Lua Native 3DS Port
    sdmc:/3ds/save/pokemon-love2d/<version>/  (see README.md, "Importing a ROM").
 4. Open the Homebrew Launcher and start Gen1Recomp.
 
-Prefer a HOME menu icon?  Install gen1recomp.cia from the same Release with
-FBI (SD -> gen1recomp.cia -> Install and delete).  It uses the same
+Prefer a HOME menu icon?  Install the gen1recomp-<version>-3ds.cia from the
+same Release with FBI (SD -> the .cia -> Install and delete).  It uses the same
 3ds/game and 3ds/save folders, so steps 1-3 still apply.
 EOF
 (cd "$STAGE" && zip -qr "$OUT" .)

@@ -33,7 +33,7 @@ Requirements:
 
 Steps:
 
-1. Download `gen1recomp-3ds-<version>.zip` from the latest Release.
+1. Download `gen1recomp-<version>-3ds.zip` from the latest Release.
 2. Extract it onto the root of the SD card, merging the `3ds` folder. You get
    `sdmc:/3ds/gen1recomp.3dsx` and `sdmc:/3ds/game/`.
 3. Import your ROM on the PC (next section) and copy the version folder to
@@ -45,13 +45,13 @@ Without a card reader: netload `ftpd.3dsx` once, then
 
 ### CIA (HOME menu icon, via FBI)
 
-Releases also ship `gen1recomp.cia`. It is the same engine as the 3dsx, as
+Releases also ship `gen1recomp-<version>-3ds.cia`. It is the same engine as the 3dsx, as
 its own title: an icon on the HOME menu, no Homebrew Launcher, and about four
 times the heap the 3dsx gets under the launcher (91 MB vs ~24 MB).
 
-1. Copy `gen1recomp.cia` anywhere on the SD card (or send it with FBI's
+1. Copy the `.cia` anywhere on the SD card (or send it with FBI's
    *Remote Install* using `scripts/3ds/fbi_send_url.py <3DS-IP> <url>`).
-2. FBI → *SD* → `gen1recomp.cia` → *Install and delete CIA*.
+2. FBI → *SD* → the `.cia` → *Install and delete CIA*.
 3. The game tree and the save/cache folders are the same ones the 3dsx uses
    (`sdmc:/3ds/game/`, `sdmc:/3ds/save/pokemon-love2d/`), so steps 2–3 of the
    list above still apply.
@@ -115,19 +115,24 @@ tools/assemble.sh                       # -> work/game
 
 # 2. engine
 docker run --rm -v "$PWD/engine":/src -w /src devkitpro/devkitarm:latest \
-  sh -c 'cmake -S . -B build -Wno-dev && ninja -C build'   # -> engine/build/lovepotion.3dsx
+  sh -c 'cmake -G Ninja -S . -B build -Wno-dev -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/cmake/3DS.cmake && ninja -C build'
+  # -> engine/build/lovepotion.3dsx
 
 # 3. zip laid out like the SD root
-tools/package.sh engine/build/lovepotion.3dsx v0.0.0-local
+tools/package.sh engine/build/lovepotion.3dsx 0.0.0-local
 
 # 4. CIA (Linux x86_64 only: downloads pinned makerom + bannertool on first run)
 tools/cia/make_cia.sh engine/build/lovepotion.elf dist/gen1recomp.cia
 ```
 
 CI: `tests.yml` runs on every push/PR to master (assemble + console test
-suites). `engine.yml` (3dsx + ELF + CIA artifacts) and `release.yml` (GitHub
-Release with zip, CIA and ELF for an existing tag) are manual, from the
-Actions tab.
+suites). `engine.yml` (3dsx + ELF + CIA artifacts) and `release.yml` are
+manual, from the Actions tab. `release.yml` picks the version (blank input =
+next patch after the newest tag), builds master, creates the tag and the
+GitHub Release, and attaches `gen1recomp-<v>-3ds.zip`,
+`gen1recomp-<v>-3ds.cia`, `gen1recomp-<v>-3ds-symbols.elf` and
+`sha256sums.txt`, with the issues closed and contributors since the previous
+release in the notes -- the same shape as upstream's releases.
 
 `UPSTREAM_DIR=/path/to/gen1recomp tools/assemble.sh` reuses a local clone.
 Console test suites (`overlay/tests/engine/*.lua`) run with `luajit` from
