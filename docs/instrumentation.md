@@ -7,15 +7,14 @@ a console-only problem needs evidence again.
 
 ```sh
 # re-add (from the repo root; apply to the fork checkout and to the assembled game)
-patch -p0 -d engine     < docs/instrumentation-engine.patch   # paths are engine/...
-patch -p0 -d work/game  < docs/instrumentation-game.patch     # paths are game/...
+patch -p1 -d engine     < docs/instrumentation-engine.patch   # hunks are engine/...
+patch -p1 -d work/game  < docs/instrumentation-game.patch     # hunks are game/...
 # remove again
-patch -p0 -R -d engine    < docs/instrumentation-engine.patch
-patch -p0 -R -d work/game < docs/instrumentation-game.patch
+patch -p1 -R -d engine    < docs/instrumentation-engine.patch
+patch -p1 -R -d work/game < docs/instrumentation-game.patch
 ```
 
-(The patches were generated with directory prefixes `engine/` and `game/`;
-use `-p1` when applying from inside those directories.)
+(The hunk headers carry the prefixes `engine/` and `game/`, hence `-p1`.)
 
 Rule that paid for itself every time: **add the probe first, read the whole
 file it produces, then change code.** Hypotheses formed from a screenshot cost
@@ -25,7 +24,7 @@ a console cycle each; one probe usually names the cause outright.
 
 | File on SD | Written by | When |
 |---|---|---|
-| `sdmc:/gen1_init.txt` | `engine/platform/ctr/source/runtime.cpp` (`tryInit`) | a system service failed to initialise (`code=` is the `AbortCode` index: 0 romfs, 1 mcuHwc, 2 ptmu, 3 cfgu, 4 ac, 5 frd, 6 y2r; `result=` is the libctru `Result`). Under a CIA the error applet cannot be shown this early, so this file is the only report. |
+| `sdmc:/gen1_init.txt` | `engine/platform/ctr/source/runtime.cpp` (`tryInit`) | a system service failed to initialise (`code=` is the `AbortCode` index: 0 romfs, 1 mcuHwc, 2 ptmu, 3 cfgu, 4 ac, 5 frd, 6 soc, 7 y2r; `result=` is the libctru `Result`). Under a CIA the error applet cannot be shown this early, so this file is the only report. |
 | `sdmc:/gen1_boot_error.txt` | `engine/source/modules/love/scripts/boot.lua` | `love.boot` failed (traceback), or the no-game screen was reached (`exepath`, `cwd`, `tried` = the source path that was rejected). |
 | `sdmc:/3ds/save/pokemon-love2d/lua-error.log` | game (`main.lua` error handler) | any uncaught Lua error, with the LÖVE/OS line. |
 | `sdmc:/luma/dumps/arm11/crash_dump_NNNNN.dmp` | Luma3DS | native crash. Decode: header is 40 bytes; registers follow (`r0..r12, sp, lr, pc, cpsr`, then `dfsr/far`); `arm-none-eabi-addr2line -f -C -e lovepotion.elf <pc> <lr>` against the **same build's** ELF. Words in the stack dump that fall in `0x00100000..0x00800000` are candidate return addresses. |

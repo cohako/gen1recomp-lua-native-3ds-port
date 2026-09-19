@@ -2,7 +2,9 @@
 
 #include <utilities/result.hpp>
 
+#include <cerrno>
 #include <cstdio>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <cstring>
 #include <functional>
@@ -28,16 +30,15 @@ extern "C"
             std::fclose(log);
         }
 
-        /* errorDisp -> aptLaunchSystemApplet -> aptScreenTransfer needs live
-        ** framebuffers and crashes this early under a CIA even with
-        ** gfxInitDefault (crash dumps 20, 21).  There the breadcrumb above is
-        ** the report; only the Homebrew Launcher path shows the applet. */
+        /* errorDisp -> aptLaunchSystemApplet -> aptScreenTransfer reads the
+        ** framebuffers, which do not exist this early under a CIA (crash
+        ** dumps 20, 21).  There the breadcrumb above is the report; the
+        ** Homebrew Launcher path shows the applet as before. */
         if (!envIsHomebrew())
         {
             love::g_EarlyExit = true;
             return;
         }
-        gfxInitDefault();
 
         errorConf conf {};
 
@@ -53,7 +54,6 @@ extern "C"
 
         errorText(&conf, message);
         errorDisp(&conf);
-        gfxExit();
 
         love::g_EarlyExit = true;
     }
@@ -70,7 +70,17 @@ extern "C"
         ** SD root, so pin the same working directory here; the game tree
         ** then lives in one place for both install methods. */
         if (!envIsHomebrew())
-            chdir("sdmc:/3ds");
+        {
+            mkdir("sdmc:/3ds", 0777); /* SD without the zip extracted yet */
+            if (chdir("sdmc:/3ds") != 0)
+            {
+                if (FILE* log = std::fopen("sdmc:/gen1_init.txt", "a"))
+                {
+                    std::fprintf(log, "chdir(sdmc:/3ds) failed: errno=%d\n", errno);
+                    std::fclose(log);
+                }
+            }
+        }
 
 #if !defined(__EMULATION__)
         /* raw battery info */

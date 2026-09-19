@@ -40,7 +40,7 @@ AccessControlInfo:
   Priority                      : 16
    
   MaxCpu                        : 0x9E # Default
-  DisableDebug                  : false
+  DisableDebug                  : true
   EnableForceDebug              : false
   CanWriteSharedPage            : false
   CanUsePrivilegedPriority      : false
@@ -124,15 +124,12 @@ AccessControlInfo:
    - fs:USER
    - gsp::Gpu
    - hid:USER
-   - ndm:u
    - ptm:u
    - soc:U
    - gsp::Lcd
    - y2r:u
-   - ldr:ro
    - ir:USER
-   - ir:u
-   - csnd:SND
+   - ir:rst
    - ptm:sysm
    - mcu::HWC
    

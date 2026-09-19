@@ -159,6 +159,12 @@ int main(int argc, char** argv)
     if (love::g_EarlyExit)
     {
         love::OnExit<Console::Which>();
+#if defined(__3DS__)
+        /* same reason as the tail of main(): the static destructor chain
+        ** data-aborts on this console, so leave without running it */
+        fflush(NULL);
+        _exit(0);
+#endif
         return 0;
     }
 

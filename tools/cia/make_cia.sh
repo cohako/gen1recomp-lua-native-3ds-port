@@ -19,10 +19,20 @@ ROOT=$(cd "$HERE/../.." && pwd)
 ELF=${1:?usage: make_cia.sh <lovepotion.elf> <out.cia>}
 OUT=${2:?usage: make_cia.sh <lovepotion.elf> <out.cia> [vX.Y.Z]}
 VERSION=${3:-v0.0.1}
+case "$VERSION" in
+  v[0-9]*.[0-9]*.[0-9]*) ;;
+  *) echo "make_cia: version must be vMAJOR.MINOR.MICRO (got '$VERSION')" >&2; exit 1 ;;
+esac
 IFS=. read -r MAJOR MINOR MICRO <<EOF2
 $(printf %s "$VERSION" | sed 's/^v//')
 EOF2
-MICRO=${MICRO:-0}
+for n in "$MAJOR" "$MINOR" "$MICRO"; do
+  case "$n" in ''|*[!0-9]*) echo "make_cia: version parts must be plain integers (got '$VERSION')" >&2; exit 1 ;; esac
+done
+# 16-bit title version: 6 bits major, 6 bits minor, 4 bits micro
+if [ "$MAJOR" -gt 63 ] || [ "$MINOR" -gt 63 ] || [ "$MICRO" -gt 15 ]; then
+  echo "make_cia: version out of range (major/minor <= 63, micro <= 15): $VERSION" >&2; exit 1
+fi
 TITLE_VER=$(( (MAJOR << 10) | (MINOR << 4) | MICRO ))
 BIN="$HERE/.bin"
 ROMFS="$ROOT/engine/platform/ctr/romfs"

@@ -12,7 +12,7 @@ This repository does not contain the game. It contains:
 | Path | What |
 |---|---|
 | `engine/` | The LÖVE Potion fork (C++), full source. Rendering, audio, input and shutdown fixes for the 3DS, native PNG decode/encode, the Gen1Recomp SMDH icon. |
-| `overlay/` | New files added to the game: the 3DS platform layer (`src/core/Console.lua`, `CtrTrace.lua`), the console test suites, `scripts/3ds/`. |
+| `overlay/` | New files added to the game: the 3DS platform layer (`src/core/Console.lua`), the console test suites, `scripts/3ds/`. |
 | `patches/` | One diff per upstream game file the port edits (20 files). |
 | `UPSTREAM` | The upstream gen1recomp commit the patches apply to. |
 | `tools/` | `assemble.sh` (upstream + overlay + patches → `work/game/`), `package.sh` (release zip), `cia/` (RSF, banner, icon and `make_cia.sh`). |
@@ -120,7 +120,7 @@ docker run --rm -v "$PWD/engine":/src -w /src devkitpro/devkitarm:latest \
 # 3. zip laid out like the SD root
 tools/package.sh engine/build/lovepotion.3dsx v0.0.0-local
 
-# 4. CIA (downloads pinned makerom + bannertool on first run)
+# 4. CIA (Linux x86_64 only: downloads pinned makerom + bannertool on first run)
 tools/cia/make_cia.sh engine/build/lovepotion.elf dist/gen1recomp.cia
 ```
 
@@ -170,6 +170,8 @@ Run the tests, then verify on hardware.
   (lovebrew/LovePotion#102) while the same build runs on hardware.
 - Upstream pinned to `fdd1d61e` (dev, 2026-09-05). Newer upstream releases
   need the patches refreshed.
+- Tested on a New 2DS XL only. The CIA asks for the New 3DS memory mode
+  (`SystemModeExt: 124MB`); an Old 3DS/2DS is untested.
 
 ## Debugging on hardware
 
