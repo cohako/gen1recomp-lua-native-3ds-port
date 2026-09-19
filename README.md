@@ -4,8 +4,8 @@ A Nintendo 3DS / 2DS port of [gen1recomp](https://github.com/bryanthaboi/gen1rec
 the LÖVE (Lua) recompilation of the Game Boy Pokémon games, running on a fork of
 [LÖVE Potion](https://github.com/lovebrew/lovepotion).
 
-Tested on a New 2DS XL with Luma3DS and the Homebrew Launcher. Old 3DS/2DS is
-untested.
+Tested on a New 2DS XL with Luma3DS, both as a 3dsx (Homebrew Launcher) and
+as a CIA (HOME menu). Old 3DS/2DS is untested.
 
 This repository does not contain the game. It contains:
 
@@ -16,9 +16,12 @@ This repository does not contain the game. It contains:
 | `patches/` | One diff per upstream game file the port edits (20 files). |
 | `UPSTREAM` | The upstream gen1recomp commit the patches apply to. |
 | `tools/` | `assemble.sh` (upstream + overlay + patches → `work/game/`), `package.sh` (release zip), `cia/` (RSF, banner, icon and `make_cia.sh`). |
+| `docs/` | `instrumentation.md` + two patches: the console probes used during bring-up, removed from the build, re-applicable in one command. |
 
-Releases ship a zip laid out like the SD card root, so nobody needs any of the
-above to play.
+Each Release ships `gen1recomp-<version>-3ds.zip` (SD card layout, for the
+Homebrew Launcher), `gen1recomp-<version>-3ds.cia` (HOME menu title, via FBI),
+`gen1recomp-<version>-3ds-symbols.elf` (for decoding crash dumps) and
+`sha256sums.txt`. Nobody needs anything in this repository to play.
 
 ## Installing on the console
 
@@ -42,6 +45,8 @@ Steps:
 
 Without a card reader: netload `ftpd.3dsx` once, then
 `scripts/3ds/ftp_upload_game.py <3DS-IP>` uploads the game tree over wifi.
+(The `scripts/3ds/` tools live in `overlay/scripts/3ds/` here and inside the
+assembled game tree, `work/game/scripts/3ds/`; run them from the latter.)
 
 ### CIA (HOME menu icon, via FBI)
 
@@ -65,15 +70,17 @@ one-time dump on the user's own console).
 
 The console does not import ROMs (see Limitations). Build the cache on a PC
 with [LÖVE](https://love2d.org) installed, or with the packaged desktop game
-via `LOVE_BIN`:
+via `LOVE_BIN`. The script runs from the game tree (`tools/assemble.sh` →
+`work/game`, or an upstream checkout with the overlay applied):
 
 ```sh
+cd work/game
 scripts/3ds/import_rom.sh "Pokemon - Crystal Version (USA, Europe) (Rev A).gbc"
 ```
 
 The script runs the game's importer headless (`POKEPORT_IMPORT_ONLY=1`), then
 copies the result out of LÖVE's save directory into
-`dist/3ds-sd/3ds/save/pokemon-love2d/<version>/`:
+`dist/3ds-sd/3ds/save/pokemon-love2d/<version>/` next to the game tree:
 
 ```
 <version>/
@@ -83,8 +90,11 @@ copies the result out of LÖVE's save directory into
 ```
 
 Copy `dist/3ds-sd/3ds` onto the SD card root (merge). The launcher shows that
-version as ready. Versions: `red`, `blue`, `yellow`, `gold`, `silver`,
-`crystal`; the ROM is identified by SHA-1, both Crystal revisions are accepted.
+version as ready: readiness is the `rom-cache.complete` marker inside the
+folder, no flag or config on the console. Versions: `red`, `blue`, `yellow`,
+`gold`, `silver`, `crystal`; the ROM is identified by SHA-1, both Crystal
+revisions are accepted. The script has not been exercised end to end on this
+machine yet (no LÖVE installed here); the manual equivalent below has.
 
 Equivalent by hand: `POKEPORT_IMPORT_ONLY=1 POKEPORT_IMPORT_ROM=<rom> love .`
 in an upstream checkout, then copy `~/.local/share/love/pokemon-love2d/<version>`
@@ -122,7 +132,7 @@ docker run --rm -v "$PWD/engine":/src -w /src devkitpro/devkitarm:latest \
 tools/package.sh engine/build/lovepotion.3dsx 0.0.0-local
 
 # 4. CIA (Linux x86_64 only: downloads pinned makerom + bannertool on first run)
-tools/cia/make_cia.sh engine/build/lovepotion.elf dist/gen1recomp.cia
+tools/cia/make_cia.sh engine/build/lovepotion.elf dist/gen1recomp-0.0.1-3ds.cia v0.0.1
 ```
 
 CI: `tests.yml` runs on every push/PR to master (assemble + console test
@@ -132,7 +142,8 @@ next patch after the newest tag), builds master, creates the tag and the
 GitHub Release, and attaches `gen1recomp-<v>-3ds.zip`,
 `gen1recomp-<v>-3ds.cia`, `gen1recomp-<v>-3ds-symbols.elf` and
 `sha256sums.txt`, with the issues closed and contributors since the previous
-release in the notes -- the same shape as upstream's releases.
+release in the notes -- the same shape as upstream's releases. Running it needs
+write access to the repository; it refuses a version whose tag already exists.
 
 `UPSTREAM_DIR=/path/to/gen1recomp tools/assemble.sh` reuses a local clone.
 Console test suites (`overlay/tests/engine/*.lua`) run with `luajit` from
@@ -158,19 +169,28 @@ Run the tests, then verify on hardware.
 
 ## Current limitations
 
-- **No ROM import on the console.** Measured on a New 2DS XL: a Gen 2 import
-  took hours (one SD write and PNG encode per file) and then crashed in
-  `malloc` at 68% -- the extractor keeps ~30 MB live in Lua 5.1 and the app
-  gets ~32 MB under the Homebrew Launcher, shared with textures. The Import
-  button only tells you which folder to copy.
+- **No ROM import on the console.** Measured on a New 2DS XL under the
+  Homebrew Launcher: a Gen 2 import took hours (one SD write and PNG encode
+  per file) and then crashed in `malloc` at 68% -- the extractor keeps ~30 MB
+  live in Lua 5.1, more than the heap the 3dsx gets there. The Import button
+  only tells you which folder to copy. The CIA has ~91 MB of heap, but import
+  stays disabled on the console: the PC does it in seconds.
 - **No map/battle music** without the pre-render step above. Sound effects,
   cries and Yellow's Pikachu voice work.
 - **Top screen only** (400×240). The bottom screen is unused.
 - Tilt effect disabled (its 741×573 canvas does not fit VRAM). Palette effects
   run without shaders.
-- Under the Homebrew Launcher the app gets ~24 MB of heap (inherited from the
-  host title); the CIA gets 91 MB. Both use the same 32 MB linear heap and
-  6 MB of VRAM.
+- Memory: the CIA gets 91 MB of heap + 32 MB linear (measured). Under the
+  Homebrew Launcher the split is inherited from the host title, roughly
+  24 MB + 32 MB by libctru's defaults (not measured). VRAM is 6 MB either way.
+- **No online features on the console.** The mod index, mod downloads and the
+  update check go through a `curl` subprocess or a native bridge on the other
+  platforms; neither exists on the 3DS, so the Mods tab cannot fetch anything.
+  (LÖVE Potion does ship `https`; wiring it in is future work.)
+- The New 3DS C-stick is not read (the engine never initialises `irrst`).
+  D-pad, Circle Pad, buttons and touch work.
+- Performance: the GPU is mostly idle; frame time is interpreted Lua on the
+  main core. Battle/encounter transitions are noticeably slow.
 - Azahar/Citra cannot be used to test: LÖVE Potion exits immediately under it
   (lovebrew/LovePotion#102) while the same build runs on hardware.
 - Upstream pinned to `fdd1d61e` (dev, 2026-09-05). Newer upstream releases
@@ -181,13 +201,17 @@ Run the tests, then verify on hardware.
 ## Debugging on hardware
 
 - Lua errors: `sdmc:/3ds/save/pokemon-love2d/lua-error.log`.
-- Trace (close sequence, import stages with heap size): `trace3ds.txt` in the
-  same folder.
+- Engine start-up failures (a system service, the boot, the no-game screen):
+  `sdmc:/gen1_init.txt` and `sdmc:/gen1_boot_error.txt`. These are the only
+  probes left in the build; the per-frame traces used during bring-up are in
+  `docs/instrumentation.md`, with patches to put them back.
 - Native crashes: Luma writes `sdmc:/luma/dumps/arm11/crash_dump_*.dmp`. Read
   `pc`/`lr` from the register dump and resolve them against the release's
-  `lovepotion.elf`:
-  `arm-none-eabi-addr2line -f -C -e lovepotion.elf <pc> <lr>`.
+  `gen1recomp-<version>-3ds-symbols.elf`:
+  `arm-none-eabi-addr2line -f -C -e gen1recomp-<version>-3ds-symbols.elf <pc> <lr>`.
 - `3dslink` does not stream stdout back; read errors from the files above.
+- Files on the SD are easiest to pull over wifi: netload `ftpd.3dsx`, then
+  `scripts/3ds/mirror_sd.py <3DS-IP>`.
 
 ## License
 
