@@ -18,7 +18,7 @@ jobs:
       - name: cmake + ninja
         working-directory: engine
         run: |
-          cmake -S . -B build -Wno-dev >/dev/null
+          cmake -G Ninja -S . -B build -Wno-dev -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/cmake/3DS.cmake >/dev/null
           ninja -C build
           ls -la build/lovepotion.3dsx build/lovepotion.elf
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
