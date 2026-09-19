@@ -136,6 +136,13 @@ function love.boot()
     end
 
     if not can_has_game then
+        -- Console: no stdout, so record why the source was rejected.
+        local f = io.open("sdmc:/gen1_boot_error.txt", "a")
+        if f then
+            f:write(("no game: exepath=%s cwd=%s tried=%s\n"):format(tostring(exepath),
+                tostring(love.filesystem.getWorkingDirectory()), tostring(invalid_game_path)))
+            f:close()
+        end
         local nogame = require("love.nogame")
         nogame()
     end
@@ -418,7 +425,12 @@ end
 local print, debug, tostring = print, debug, tostring
 
 local function error_printer(msg, layer)
-    print(debug.traceback("Error: " .. tostring(msg), 1 + (layer or 1)):gsub("\n[^\n]+$", ""))
+    local text = debug.traceback("Error: " .. tostring(msg), 1 + (layer or 1)):gsub("\n[^\n]+$", "")
+    print(text)
+    -- A boot failure returns 1 and quits before any frame is drawn, so on the
+    -- console (no stdout) the message would be lost.  Leave it on the SD.
+    local f = io.open("sdmc:/gen1_boot_error.txt", "a")
+    if f then f:write(text, "\n\n") f:close() end
 end
 
 -----------------------------------------------------------

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <common/console.hpp>
 #include <common/luax.hpp>
 #include <common/variant.hpp>
@@ -44,17 +45,32 @@ DoneAction RunLOVE(int argc, char** argv, int& retval, Variant& restartValue)
             lua_pushstring(L, argv[0]);
             lua_rawseti(L, -2, -2);
         }
+        else
+        {
+            /* A CIA title gets no argv.  boot.lua takes the lowest arg index
+            ** as the executable path and love.filesystem.init() refuses an
+            ** empty one, so without this a CIA quits before its first frame
+            ** with nothing on screen.  Any path on the SD works: it only
+            ** seeds PhysFS' base directory (the save dir comes from cwd). */
+            lua_pushstring(L, "sdmc:/3ds/gen1recomp.3dsx");
+            lua_rawseti(L, -2, -2);
+        }
 
-        std::vector<const char*> args(argv, argv + argc);
+        /* arg[1..] = argv[1..] then the game folder.  Skip argv[0] by
+        ** position, not by starting the copy at index 1: with argc == 0 (a
+        ** CIA title) the old loop copied nothing and "game" never reached
+        ** arg[1], so boot.lua showed the no-game screen (CIA breadcrumb:
+        ** "tried=nil"). */
+        std::vector<const char*> args(argv + std::min(argc, 1), argv + argc);
         args.push_back("game");
 
         lua_pushstring(L, "embedded boot.lua");
         lua_rawseti(L, -2, -1);
 
-        for (int index = 1; index < (int)args.size(); index++)
+        for (int index = 0; index < (int)args.size(); index++)
         {
             lua_pushstring(L, args[index]);
-            lua_rawseti(L, -2, index);
+            lua_rawseti(L, -2, index + 1);
         }
 
         lua_setglobal(L, "arg");

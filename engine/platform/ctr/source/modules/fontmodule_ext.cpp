@@ -61,7 +61,21 @@ static CFNT_s* loadFromArchive(uint64_t title, const char* path, size_t& outSize
 
     font = (CFNT_s*)linearAlloc(fontSize);
 
-    if (font && !decompress_LZ11(font, fontSize, nullptr, fontData.get() + 4, size - 4))
+    if (!font)
+    {
+        /* Returning nullptr here handed FontModule a NULL ByteData and the
+        ** first newFont died in memcpy (crash dump 23, CIA).  Say why. */
+        if (FILE* log = std::fopen("sdmc:/gen1_init.txt", "a"))
+        {
+            std::fprintf(log, "system font: linearAlloc(%lu) failed; file=%ld linearFree=%lu\n",
+                         (unsigned long)fontSize, size, (unsigned long)linearSpaceFree());
+            std::fclose(log);
+        }
+        throw love::Exception("Not enough linear memory for the system font (%lu bytes).",
+                              (unsigned long)fontSize);
+    }
+
+    if (!decompress_LZ11(font, fontSize, nullptr, fontData.get() + 4, size - 4))
     {
         linearFree(font);
         throw love::Exception("Failed to decompress '%s'", path);
