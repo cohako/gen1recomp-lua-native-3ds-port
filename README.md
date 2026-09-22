@@ -40,7 +40,7 @@ This is the 3DS port layer for [**gen1recomp**](https://github.com/bryanthaboi/g
 
 1. Download `gen1recomp-<version>-3ds.zip` from the [latest Release](https://github.com/cohako/gen1recomp-lua-native-3ds-port/releases/latest).
 2. Extract it onto the **root of the SD card**, merging the `3ds` folder. You get `sdmc:/3ds/gen1recomp.3dsx` and `sdmc:/3ds/game/`.
-3. Import your ROM on the PC (next section) and copy the version folder to `sdmc:/3ds/save/pokemon-love2d/`.
+3. Build your ROM cache on the PC (next section) and copy the `3ds` folder it produces onto the card too.
 4. Open the Homebrew Launcher and start **Gen1Recomp**.
 
 No card reader? Netload `ftpd.3dsx` once, then `scripts/3ds/ftp_upload_game.py <3DS-IP>` uploads the game tree over wifi.
@@ -60,14 +60,17 @@ The CIA holds only this repository's code plus LÖVE Potion, signed with makerom
 
 ## 💾 Importing your ROM (on the PC)
 
-The console does not import ROMs (see [Limitations](#-current-limitations)). The PC does it in seconds. You need [LÖVE](https://love2d.org) installed, or the packaged desktop game via `LOVE_BIN`, and the assembled game tree (`tools/assemble.sh` → `work/game`, or an upstream checkout with the overlay applied):
+The console does not import ROMs (see [Limitations](#-current-limitations)); the PC does it in seconds. The release zip ships `import-tools/` for exactly this — put that folder next to the gen1recomp desktop app (or install [LÖVE](https://love2d.org)), then double-click the file for your system:
 
-```sh
-cd work/game
-scripts/3ds/import_rom.sh "Pokemon - Crystal Version (USA, Europe) (Rev A).gbc"
-```
+| System | File |
+|---|---|
+| Windows | `import-tools/Export-3DS.bat` |
+| macOS | `import-tools/Export-3DS.command` |
+| Linux | `import-tools/Export-3DS.sh` |
 
-The script runs the game's importer headless (`POKEPORT_IMPORT_ONLY=1`) and copies the result out of LÖVE's save directory into `dist/3ds-sd/3ds/save/pokemon-love2d/<version>/`:
+No arguments, no questions. It imports every `.gb`/`.gbc` you dropped in `import-tools/roms` through the game's own headless mode, picks up any cache you already imported in the desktop app, writes everything to `import-tools/sd-card/3ds/save/pokemon-love2d/<version>/`, and prints that path. Copy that `3ds` folder onto the card root, merging.
+
+Each version folder holds:
 
 ```
 <version>/
@@ -76,9 +79,9 @@ The script runs the game's importer headless (`POKEPORT_IMPORT_ONLY=1`) and copi
   rom-cache.complete    the marker the launcher checks; identical on every platform
 ```
 
-Copy `dist/3ds-sd/3ds` onto the SD card root (merge). The launcher shows that version as ready — readiness *is* that marker; there is no flag or config on the console. Versions: `red`, `blue`, `yellow`, `gold`, `silver`, `crystal`; the ROM is identified by SHA-1, both Crystal revisions are accepted.
+The launcher shows a version as ready — readiness *is* that marker; there is no flag or config on the console. Versions: `red`, `blue`, `yellow`, `gold`, `silver`, `crystal`; the ROM is identified by SHA-1, both Crystal revisions are accepted.
 
-> The script has not been exercised end to end on the dev machine yet (no LÖVE installed there). The manual equivalent has: `POKEPORT_IMPORT_ONLY=1 POKEPORT_IMPORT_ROM=<rom> love .` in the game tree, then copy `~/.local/share/love/pokemon-love2d/<version>` (Linux; `%APPDATA%\LOVE\...` on Windows, `~/Library/Application Support/LOVE/...` on macOS).
+> Not yet run against the packaged desktop app, or on real Windows/macOS — no LÖVE on the dev machine. Each script was exercised against a stand-in app. By hand it is `POKEPORT_IMPORT_ONLY=1 POKEPORT_IMPORT_ROM=<rom> love .` in a game tree, then copy `~/.local/share/love/pokemon-love2d/<version>` (Linux; `%APPDATA%\LOVE\...` on Windows, `~/Library/Application Support/LOVE/...` on macOS).
 
 <details>
 <summary><b>🎵 Music (optional)</b></summary>
@@ -99,13 +102,14 @@ This repository does **not** contain the game. It contains everything needed to 
 | Path | What |
 |---|---|
 | `engine/` | The LÖVE Potion fork (C++), full source. Rendering, audio, input and shutdown fixes for the 3DS, native PNG decode/encode, CIA start-up, the Gen1Recomp SMDH icon. |
-| `overlay/` | New files added to the game: the 3DS platform layer (`src/core/Console.lua`), the console test suites, `scripts/3ds/`. |
+| `overlay/` | New files added to the game: the 3DS platform layer (`src/core/Console.lua`), the console test suites, `scripts/3ds/` (FTP upload, SD mirror, music pre-render). |
+| `import-tools/` | The double-click scripts that build the SD card folder on the PC; shipped inside the release zip. |
 | `patches/` | One diff per upstream game file the port edits (20 files). |
 | `UPSTREAM` | The upstream gen1recomp commit the patches apply to. |
 | `tools/` | `assemble.sh` (upstream + overlay + patches → `work/game/`), `package.sh` (release zip), `cia/` (RSF, banner, icon, `make_cia.sh`). |
 | `docs/` | `instrumentation.md` + two patches: the console probes used during bring-up, removed from the build, re-applicable in one command. |
 
-The `scripts/3ds/` tools live in `overlay/scripts/3ds/` here and inside the assembled game tree (`work/game/scripts/3ds/`); run them from the latter.
+The `scripts/3ds/` tools live in `overlay/scripts/3ds/` here and inside the assembled game tree (`work/game/scripts/3ds/`); run them from the latter. `import-tools/` is separate: it runs on the PC next to the desktop app, not from the game tree.
 
 ## 🔧 Building
 
