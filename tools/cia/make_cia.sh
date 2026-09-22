@@ -36,6 +36,26 @@ fi
 TITLE_VER=$(( (MAJOR << 10) | (MINOR << 4) | MICRO ))
 BIN="$HERE/.bin"
 ROMFS="$ROOT/engine/platform/ctr/romfs"
+GAME=${GAME_TREE:-$ROOT/work/game}
+
+# The title's RomFS carries the engine's own assets (shaders, no-game screen)
+# and, when an assembled game tree is around, the game itself -- so installing
+# the CIA is the whole install and nothing has to be copied to sdmc:/3ds/game.
+# boot.lua still prefers the SD copy when the card has one.
+if [ -d "$GAME" ]; then
+  STAGE=$(mktemp -d)
+  trap 'rm -rf "$STAGE"' EXIT INT TERM
+  cp -R "$ROMFS/." "$STAGE/"
+  cp -R "$GAME" "$STAGE/game"
+  # The sample mods ship for people reading the source, and a mod inside a
+  # read-only RomFS can be neither disabled nor deleted from the console.
+  # Mods the player installs live in the save directory and still work.
+  rm -rf "$STAGE/game/mods"
+  ROMFS="$STAGE"
+  echo "make_cia: embedding the game tree from $GAME"
+else
+  echo "make_cia: no game tree at $GAME -- the CIA will need sdmc:/3ds/game" >&2
+fi
 
 MAKEROM_URL=https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.19.0/makerom-v0.19.0-ubuntu_x86_64.zip
 MAKEROM_SHA=287b809dec064e0ad597e3d272c49ecb7eed41693d5ee6fef9d8a8aa24c2497e
