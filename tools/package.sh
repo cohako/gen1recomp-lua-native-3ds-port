@@ -1,7 +1,9 @@
 #!/usr/bin/env sh
-# Package a release zip laid out like the SD card root:
+# Package a release zip laid out like the SD card root, plus the PC-side
+# export tools:
 #   3ds/gen1recomp.3dsx
 #   3ds/game/...
+#   import-tools/     double-click scripts that build the SD folder from a ROM
 #   INSTALL.txt
 #
 # Output: dist/gen1recomp-<version>-3ds.zip (upstream's <name>-<version>-<platform> naming)
@@ -20,20 +22,32 @@ OUT="$ROOT/dist/gen1recomp-$VERSION-3ds.zip"
 rm -rf "$STAGE" "$OUT"; mkdir -p "$STAGE/3ds"
 cp "$DSX" "$STAGE/3ds/gen1recomp.3dsx"
 cp -R "$GAME" "$STAGE/3ds/game"
+cp -R "$ROOT/import-tools" "$STAGE/import-tools"
 cat > "$STAGE/INSTALL.txt" <<'EOF'
 Gen1Recomp - Lua Native 3DS Port
 
-1. Copy the "3ds" folder onto the root of your SD card (merge with the
-   existing one).
-2. Make sure sdmc:/3ds/dspfirm.cdc exists. If not: Rosalina menu
-   (L + Down + Select) -> Miscellaneous options -> Dump DSP firmware.
-3. Import your ROM on the PC and copy the resulting version folder to
-   sdmc:/3ds/save/pokemon-love2d/<version>/  (see README.md, "Importing a ROM").
-4. Open the Homebrew Launcher and start Gen1Recomp.
+1. Dump the DSP firmware once per SD card, or there is no sound and the app
+   closes at startup: Rosalina menu (L + Down + Select) -> Miscellaneous
+   options -> Dump DSP firmware.
 
-Prefer a HOME menu icon?  Install the gen1recomp-<version>-3ds.cia from the
-same Release with FBI (SD -> the .cia -> Install and delete).  It uses the same
-3ds/game and 3ds/save folders, so steps 1-3 still apply.
+2. Build your ROM cache on the PC.  Put "import-tools" next to the gen1recomp
+   desktop app, drop your own .gb / .gbc files into import-tools/roms, and
+   double-click the file for your system:
+       Windows   import-tools/Export-3DS.bat
+       macOS     import-tools/Export-3DS.command
+       Linux     import-tools/Export-3DS.sh
+   It asks nothing and prints where it saved everything.  Already imported a
+   ROM in the desktop app?  It picks that up too, no ROM file needed.
+
+3. Copy onto the root of your SD card, merging with what is there:
+       the "3ds" folder from this zip
+       the "3ds" folder from import-tools/sd-card
+
+4. Start the game:
+       Homebrew Launcher -> Gen1Recomp
+   Or, for an icon on the HOME menu, install gen1recomp-<version>-3ds.cia
+   from the same Release with FBI (SD -> the .cia -> Install and delete).  It
+   uses the same 3ds/game and 3ds/save folders, so steps 1-3 still apply.
 EOF
 (cd "$STAGE" && zip -qr "$OUT" .)
 rm -rf "$STAGE"
