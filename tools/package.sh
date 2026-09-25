@@ -32,8 +32,9 @@ Gen1Recomp - Lua Native 3DS Port
 4. Open the Homebrew Launcher and start Gen1Recomp.
 
 Prefer a HOME menu icon?  Install the gen1recomp-<version>-3ds.cia from the
-same Release with FBI (SD -> the .cia -> Install and delete).  It uses the same
-3ds/game and 3ds/save folders, so steps 1-3 still apply.
+same Release with FBI (SD -> the .cia -> Install and delete).  The game is
+inside the CIA, so step 1 is not needed; steps 2-3 still apply (same
+3ds/save folder, and a 3ds/game on the card takes precedence when present).
 EOF
 (cd "$STAGE" && zip -qr "$OUT" .)
 rm -rf "$STAGE"

@@ -9,8 +9,9 @@
 #
 # Fetches pinned Linux x86_64 builds of makerom and bannertool into
 # tools/cia/.bin (checksums verified), renders the banner and SMDH icon from
-# the PNGs here, and packs engine/platform/ctr/romfs as the title's RomFS.
-# Nothing from Nintendo goes in: the title is signed with makerom's public
+# the PNGs here, and packs engine/platform/ctr/romfs plus the assembled game
+# tree (work/game, or GAME_TREE) as the title's RomFS.  Nothing from Nintendo
+# goes in: the title is signed with makerom's public
 # test keys (-target t), which is why a CFW is needed to install it.
 set -eu
 
@@ -44,13 +45,17 @@ GAME=${GAME_TREE:-$ROOT/work/game}
 # boot.lua still prefers the SD copy when the card has one.
 if [ -d "$GAME" ]; then
   STAGE=$(mktemp -d)
-  trap 'rm -rf "$STAGE"' EXIT INT TERM
+  trap 'rm -rf "$STAGE"' EXIT
+  trap 'exit 1' INT TERM
   cp -R "$ROMFS/." "$STAGE/"
   cp -R "$GAME" "$STAGE/game"
   # The sample mods ship for people reading the source, and a mod inside a
   # read-only RomFS can be neither disabled nor deleted from the console.
   # Mods the player installs live in the save directory and still work.
   rm -rf "$STAGE/game/mods"
+  # tests/ is 16 MB of fixtures assemble.sh keeps for CI; the game reads it
+  # only under POKEPORT_AUTOPILOT, which never exists on the console.
+  rm -rf "$STAGE/game/tests"
   ROMFS="$STAGE"
   echo "make_cia: embedding the game tree from $GAME"
 else
