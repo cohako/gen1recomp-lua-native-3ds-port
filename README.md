@@ -23,7 +23,7 @@ This is the 3DS port layer for [**gen1recomp**](https://github.com/bryanthaboi/g
 
 | | |
 |---|---|
-| 🎮 **Plays** | Gen 1 and Gen 2 through the upstream game, full speed battles, saves, sound effects and cries |
+| 🎮 **Plays** | Gen 1 end to end through the upstream game: full speed battles, saves, sound effects and cries. Gen 2 loads, but the overworld crashes on the first big map (see [Roadmap](#%EF%B8%8F-roadmap)) |
 | 📦 **Installs** | `gen1recomp-<v>-3ds.zip` for the Homebrew Launcher, or `gen1recomp-<v>-3ds.cia` for a HOME-menu icon |
 | 🖼️ **Renders** | PNG decoded straight into the PICA200's tiled layout, no `.t3x` pre-conversion needed |
 | 🧰 **Ships** | Debug symbols and `sha256sums.txt` with every release |
@@ -53,9 +53,9 @@ Same engine, as its own title: an icon on the HOME menu, no Homebrew Launcher, a
 
 1. Copy `gen1recomp-<version>-3ds.cia` anywhere on the SD card (or send it with FBI's *Remote Install* using `scripts/3ds/fbi_send_url.py <3DS-IP> <url>`).
 2. FBI → *SD* → the `.cia` → **Install and delete CIA**.
-3. You still need `sdmc:/3ds/game/` from the zip and your imported ROM folder: the CIA reads the same `3ds/game` and `3ds/save/pokemon-love2d` as the 3dsx, so both can live side by side.
+3. Copy your imported ROM folder onto the card (next section). The game tree itself is inside the CIA, so `sdmc:/3ds/game/` is not needed; when it exists (the 3dsx install), it wins, so both can live side by side and share `3ds/save/pokemon-love2d`.
 
-The CIA holds only this repository's code plus LÖVE Potion, signed with makerom's public test keys, which is why a CFW is required. No Nintendo firmware, keys or assets inside.
+The CIA holds the assembled game tree (upstream gen1recomp plus this port's changes) and LÖVE Potion, signed with makerom's public test keys, which is why a CFW is required. No Nintendo firmware, keys or assets inside.
 </details>
 
 ## 💾 Importing your ROM (on the PC)
@@ -81,7 +81,7 @@ Each version folder holds:
 
 The launcher shows a version as ready — readiness *is* that marker; there is no flag or config on the console. Versions: `red`, `blue`, `yellow`, `gold`, `silver`, `crystal`; the ROM is identified by SHA-1, both Crystal revisions are accepted.
 
-> Not yet run against the packaged desktop app, or on real Windows/macOS — no LÖVE on the dev machine. Each script was exercised against a stand-in app. By hand it is `POKEPORT_IMPORT_ONLY=1 POKEPORT_IMPORT_ROM=<rom> love .` in a game tree, then copy `~/.local/share/love/pokemon-love2d/<version>` (Linux; `%APPDATA%\LOVE\...` on Windows, `~/Library/Application Support/LOVE/...` on macOS).
+> Validated on Linux against the upstream `v0.2.64` AppImage: the cache it produced was accepted by the console. Windows and macOS were exercised against a stand-in app only, not on real machines. By hand it is `POKEPORT_IMPORT_ONLY=1 POKEPORT_IMPORT_ROM=<rom> love .` in a game tree, then copy `~/.local/share/love/pokemon-love2d/<version>` (Linux; `%APPDATA%\LOVE\...` on Windows, `~/Library/Application Support/LOVE/...` on macOS).
 
 <details>
 <summary><b>🎵 Music (optional)</b></summary>
@@ -138,7 +138,7 @@ tools/cia/make_cia.sh engine/build/lovepotion.elf dist/gen1recomp-0.0.1-3ds.cia 
 <details>
 <summary><b>Notes on the engine</b></summary>
 
-- The game is loaded from `sdmc:/3ds/game/`, never from the 3DSX RomFS (that belongs to LÖVE Potion: shaders and the no-game screen). A CIA `chdir`s to `sdmc:/3ds` at start so both install methods share one layout.
+- The game is loaded from `sdmc:/3ds/game/` when that folder exists. The 3DSX RomFS belongs to LÖVE Potion (shaders and the no-game screen); the CIA's RomFS also carries the game tree, and `boot.lua` falls back to `romfs:/game` when the SD has none. A CIA `chdir`s to `sdmc:/3ds` at start so both install methods share one layout.
 - PNG loads natively: decoded straight into the PICA200's 8×8 tile layout; anything above 1024 px is box-filtered down to fit. A sibling `.t3x` (`tex3ds -f rgba8888 -z auto`) is still preferred when present.
 - Fonts use the console's system font; `.ttf` files are not parsed.
 - The SMDH title, author, description and icon are set in `engine/CMakeLists.txt` (`platform/ctr/icon-gen1recomp.png`, 48×48). The CIA's title version comes from the release tag.
@@ -163,6 +163,18 @@ Edit the `game` line in `UPSTREAM`, run `tools/assemble.sh`. A patch that no lon
 - Azahar/Citra cannot be used to test: LÖVE Potion exits immediately under it (lovebrew/LovePotion#102) while the same build runs on hardware.
 - Upstream pinned to `fdd1d61e` (dev, 2026-09-05). Newer upstream releases need the patches refreshed.
 - Tested on a New 2DS XL only. The CIA asks for the New 3DS memory mode (`SystemModeExt: 124MB`); an Old 3DS/2DS is untested.
+
+## 🗺️ Roadmap
+
+Work on the port itself, roughly in order:
+
+- **Gen 2 overworld on the console.** Upstream bakes each map into a canvas through a palette shader; the PICA200 has no fragment shader and a map-sized canvas does not fit the 6 MB of VRAM, so the overworld crashes on the first big map. The fix in progress bakes maps on the CPU into plain Images (no shader, no VRAM canvas). First attempt failed on hardware.
+- **Canvases in linear RAM when VRAM runs out** (engine). Unblocks the Gen 2 bake, Tilt, and any bigger render target.
+- **Faster canvas creation and reuse**, to cut the screen lag on transitions.
+- **Chip music on a second thread**, so map and battle music plays without the pre-render step.
+- **Online features through LÖVE Potion's `https`**: route `HostShell.httpGet`/`httpDownload` through it for the mod index, mod downloads and the update check.
+- **C-stick** (`irrstInit`).
+- **Bottom screen.**
 
 ## 🔍 Debugging on hardware
 
