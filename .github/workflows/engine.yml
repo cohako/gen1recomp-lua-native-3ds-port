@@ -1,8 +1,16 @@
 name: Engine build
 
-# Manual only (Actions tab -> Run workflow): compiles the LÖVE Potion fork for
-# the 3DS and uploads the 3dsx, the ELF (symbols for crash dumps) and a CIA.
+# Runs on pull requests that touch the engine or the CIA packaging, and by hand
+# from the Actions tab: compiles the LÖVE Potion fork for the 3DS and uploads
+# the 3dsx, the ELF (symbols for crash dumps) and a CIA.  A build check only:
+# whether the result runs is still answered on the console.
 on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'engine/**'
+      - 'tools/cia/**'
+      - '.github/workflows/engine.yml'
   workflow_dispatch:
 
 permissions:

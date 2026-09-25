@@ -133,7 +133,7 @@ tools/cia/make_cia.sh engine/build/lovepotion.elf dist/gen1recomp-0.0.1-3ds.cia 
 
 `UPSTREAM_DIR=/path/to/gen1recomp tools/assemble.sh` reuses a local clone. Console test suites (`overlay/tests/engine/*.lua`) run with `luajit` from `work/game`, same as CI.
 
-**CI.** `tests.yml` runs on every push/PR to master (assemble + console test suites). `engine.yml` (3dsx + ELF + CIA artifacts) and `release.yml` are manual, from the Actions tab. `release.yml` picks the version (blank input = next patch after the newest tag), builds master, creates the tag and the GitHub Release, and attaches `gen1recomp-<v>-3ds.zip`, `gen1recomp-<v>-3ds.cia`, `gen1recomp-<v>-3ds-symbols.elf` and `sha256sums.txt`, with the issues closed and contributors since the previous release in the notes — the same shape as upstream's releases. It needs write access and refuses a version whose tag already exists.
+**CI.** `tests.yml` runs on every push/PR to master (assemble + console test suites). `engine.yml` (3dsx + ELF + CIA artifacts) runs on PRs that touch `engine/` or `tools/cia/`, and by hand from the Actions tab; it checks that the engine builds and the CIA packs, not that they run. `release.yml` is manual only. `release.yml` picks the version (blank input = next patch after the newest tag), builds master, creates the tag and the GitHub Release, and attaches `gen1recomp-<v>-3ds.zip`, `gen1recomp-<v>-3ds.cia`, `gen1recomp-<v>-3ds-symbols.elf` and `sha256sums.txt`, with the issues closed and contributors since the previous release in the notes — the same shape as upstream's releases. It needs write access and refuses a version whose tag already exists.
 
 <details>
 <summary><b>Notes on the engine</b></summary>
