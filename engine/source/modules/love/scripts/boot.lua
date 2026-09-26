@@ -115,6 +115,14 @@ function love.boot()
         identity = love.path.leaf(exepath)
     end
 
+    -- 3DS: a CIA carries the game tree in its own RomFS, so a card with no
+    -- sdmc:/3ds/game still boots.  The SD copy wins when it exists, which is
+    -- what keeps updating or modding the game a plain file copy.
+    if not can_has_game and love._console == "3DS" then
+        can_has_game = pcall(love.filesystem.setSource, "romfs:/game")
+        if can_has_game then invalid_game_path = nil end
+    end
+
     -- Try to use the archive containing main.lua as the identity name. It
     -- might not be available, in which case the fallbacks above are used.
     local realdir = love.filesystem.getRealDirectory(main_file)
